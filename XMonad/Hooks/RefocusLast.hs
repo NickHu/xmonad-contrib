@@ -41,20 +41,19 @@ module XMonad.Hooks.RefocusLast (
   RecentWins(..),
   RecentsMap(..),
   RefocusLastLayoutHook(..),
-  RefocusLastToggle(..)
+  RefocusLastToggle(..),
+  -- * Library functions
+  withRecentsIn,
 ) where
 
 import XMonad
+import XMonad.Prelude (All (..), asum, fromMaybe, when)
 import qualified XMonad.StackSet as W
 import qualified XMonad.Util.ExtensibleState as XS
 import XMonad.Util.Stack (findS, mapZ_)
 import XMonad.Layout.LayoutModifier
 
-import Data.Maybe (fromMaybe)
-import Data.Monoid (All(..))
-import Data.Foldable (asum)
 import qualified Data.Map.Strict as M
-import Control.Monad (when)
 
 -- }}}
 
@@ -80,10 +79,10 @@ import Control.Monad (when)
 -- >
 -- > main :: IO ()
 -- > main = xmonad def
--- >     { handleEventHook = refocusLastWhen myPred <+> handleEventHook def
--- >     , logHook         = refocusLastLogHook     <+> logHook         def
+-- >     { handleEventHook = refocusLastWhen myPred <> handleEventHook def
+-- >     , logHook         = refocusLastLogHook     <> logHook         def
 -- > --  , layoutHook      = refocusLastLayoutHook   $  layoutHook      def
--- >     , keys            = refocusLastKeys        <+> keys            def
+-- >     , keys            = refocusLastKeys        <> keys            def
 -- >     } where
 -- >         myPred = refocusingIsActive <||> isFloat
 -- >         refocusLastKeys cnf
@@ -113,7 +112,7 @@ data RecentWins = Recent { previous :: !Window, current :: !Window }
 -- | Newtype wrapper for a @Map@ holding the @RecentWins@ for each workspace.
 --   Is an instance of @ExtensionClass@ with persistence of state.
 newtype RecentsMap = RecentsMap (M.Map WorkspaceId RecentWins)
-  deriving (Show, Read, Eq, Typeable)
+  deriving (Show, Read, Eq)
 
 instance ExtensionClass RecentsMap where
   initialValue = RecentsMap M.empty
@@ -129,7 +128,7 @@ instance LayoutModifier RefocusLastLayoutHook a where
 
 -- | A newtype on @Bool@ to act as a universal toggle for refocusing.
 newtype RefocusLastToggle = RefocusLastToggle { refocusing :: Bool }
-  deriving (Show, Read, Eq, Typeable)
+  deriving (Show, Read, Eq)
 
 instance ExtensionClass RefocusLastToggle where
   initialValue  = RefocusLastToggle { refocusing = True }
@@ -265,7 +264,7 @@ updateRecentsOn tag = withWindowSet $ \ws ->
 
 -- }}}
 
--- --< Private Utilities >-- {{{
+-- --< Utilities >-- {{{
 
 -- | Focuses the first window in the list it can find on the current workspace.
 tryFocus :: [Window] -> WindowSet -> WindowSet
@@ -284,12 +283,12 @@ getRecentsMap = XS.get >>= \(RecentsMap m) -> return m
 -- | Perform an X action dependent on successful lookup of the RecentWins for
 --   the specified workspace, or return a default value.
 withRecentsIn :: WorkspaceId -> a -> (Window -> Window -> X a) -> X a
-withRecentsIn tag dflt f = M.lookup tag <$> getRecentsMap
-                       >>= maybe (return dflt) (\(Recent lw cw) -> f lw cw)
+withRecentsIn tag dflt f = maybe (return dflt) (\(Recent lw cw) -> f lw cw)
+                         . M.lookup tag
+                       =<< getRecentsMap
 
 -- | The above specialised to the current workspace and unit.
 withRecents :: (Window -> Window -> X ()) -> X ()
 withRecents f = withWindowSet $ \ws -> withRecentsIn (W.currentTag ws) () f
 
 -- }}}
-

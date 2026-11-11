@@ -1,7 +1,8 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.CenteredMaster
+-- Description :  Place the master pane on top of other windows; in the center or top right.
 -- Copyright   :  (c) 2009 Ilya Portnov
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -29,13 +30,15 @@ import XMonad
 import XMonad.Layout.LayoutModifier
 import qualified XMonad.StackSet as W
 
+import Control.Arrow (first)
+
 -- $usage
 -- This module defines two new layout modifiers: centerMaster and topRightMaster.
 -- centerMaster places master window at center of screen, on top of others.
 -- All other windows in background are managed by base layout.
 -- topRightMaster is like centerMaster, but places master window in top right corner instead of center.
 --
--- Yo can use this module by adding folowing in your @xmonad.hs@:
+-- You can use this module by adding following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.CenteredMaster
 --
@@ -76,15 +79,13 @@ applyPosition :: (LayoutClass l a, Eq a) =>
 
 applyPosition pos wksp rect = do
   let stack = W.stack wksp
-  let ws = W.integrate' $ stack
-  if null ws then
-     runLayout wksp rect
-     else do
-       let first = head ws
-       let other = tail ws
-       let filtStack = stack >>= W.filter (first /=)
+  let ws = W.integrate' stack
+  case ws of
+    []               -> runLayout wksp rect
+    (firstW : other) -> do
+       let filtStack = stack >>= W.filter (firstW /=)
        wrs <- runLayout (wksp {W.stack = filtStack}) rect
-       return ((first, place pos other rect) : fst wrs, snd wrs)
+       return $ first ((firstW, place pos other rect) :) wrs
 
 -- | Place master window (it's Rectangle is given), using the given Positioner.
 -- If second argument is empty (that is, there is only one window on workspace),
@@ -107,5 +108,3 @@ center rx ry (Rectangle sx sy sw sh) = Rectangle x y w h
         h = round (fromIntegral sh * ry)
         x = sx + fromIntegral (sw-w) `div` 2
         y = sy + fromIntegral (sh-h) `div` 2
-
-

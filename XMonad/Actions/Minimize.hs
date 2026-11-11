@@ -1,6 +1,7 @@
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.Minimize
+-- Description :  Actions for minimizing and maximizing windows.
 -- Copyright   :  (c) Bogdan Sinitsyn (2016)
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -11,7 +12,7 @@
 -- Adds actions for minimizing and maximizing windows
 --
 -- This module should be used with "XMonad.Layout.Minimize". Add 'minimize' to your
--- layout modifiers as described in "XMonad.Layout.Minimized" and use actions from
+-- layout modifiers as described in "XMonad.Layout.Minimize" and use actions from
 -- this module
 --
 -- Possible keybindings:
@@ -35,6 +36,7 @@ module XMonad.Actions.Minimize
   ) where
 
 import XMonad
+import XMonad.Prelude (fromMaybe, join, listToMaybe)
 import qualified XMonad.StackSet as W
 
 import qualified XMonad.Layout.BoringWindows as BW
@@ -43,21 +45,23 @@ import XMonad.Util.Minimize
 import XMonad.Util.WindowProperties (getProp32)
 
 import Foreign.C.Types (CLong)
-import Control.Monad (join)
-import Data.Maybe (fromMaybe, listToMaybe)
 import qualified Data.List as L
 import qualified Data.Map as M
 
 -- $usage
 -- Import this module with "XMonad.Layout.Minimize" and "XMonad.Layout.BoringWindows":
+--
 -- > import XMonad.Actions.Minimize
 -- > import XMonad.Layout.Minimize
 -- > import qualified XMonad.Layout.BoringWindows as BW
 --
 -- Then apply 'minimize' and 'boringWindows' to your layout hook and use some
 -- actions from this module:
+--
 -- > main = xmonad def { layoutHook = minimize . BW.boringWindows $ whatever }
+--
 -- Example keybindings:
+--
 -- >        , ((modm,               xK_m     ), withFocused minimizeWindow      )
 -- >        , ((modm .|. shiftMask, xK_m     ), withLastMinimized maximizeWindow)
 
@@ -119,7 +123,7 @@ maximizeWindowAndFocus = maximizeWindowAndChangeWSet W.focusWindow
 -- | Perform an action with first minimized window on current workspace
 --   or do nothing if there is no minimized windows on current workspace
 withFirstMinimized :: (Window -> X ()) -> X ()
-withFirstMinimized action = withFirstMinimized' (flip whenJust action)
+withFirstMinimized action = withFirstMinimized' (`whenJust` action)
 
 -- | Like withFirstMinimized but the provided action is always invoked with a
 --   'Maybe Window', that will be nothing if there is no first minimized window.
@@ -129,7 +133,7 @@ withFirstMinimized' action = withMinimized (action . listToMaybe . reverse)
 -- | Perform an action with last minimized window on current workspace
 --   or do nothing if there is no minimized windows on current workspace
 withLastMinimized :: (Window -> X ()) -> X ()
-withLastMinimized action = withLastMinimized' (flip whenJust action)
+withLastMinimized action = withLastMinimized' (`whenJust` action)
 
 -- | Like withLastMinimized but the provided action is always invoked with a
 --   'Maybe Window', that will be nothing if there is no last minimized window.

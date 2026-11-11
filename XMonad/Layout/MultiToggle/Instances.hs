@@ -1,8 +1,9 @@
-{-# LANGUAGE TypeSynonymInstances, DeriveDataTypeable, MultiParamTypeClasses #-}
+{-# LANGUAGE TypeSynonymInstances, MultiParamTypeClasses #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.MultiToggle.Instances
+-- Description :  Common instances for "XMonad.Layout.MultiToggle".
 -- Copyright   :  (c) 2008  Brent Yorgey
 -- License     :  BSD-style (see LICENSE)
 --
@@ -29,7 +30,7 @@ data StdTransformers = FULL          -- ^ switch to Full layout
                      | MIRROR        -- ^ Mirror the current layout.
                      | NOBORDERS     -- ^ Remove borders.
                      | SMARTBORDERS  -- ^ Apply smart borders.
-  deriving (Read, Show, Eq, Typeable)
+  deriving (Read, Show, Eq)
 
 instance Transformer StdTransformers Window where
     transform FULL         x k = k Full (const x)

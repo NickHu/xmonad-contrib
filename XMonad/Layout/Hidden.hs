@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleContexts, MultiParamTypeClasses, TypeSynonymInstances, PatternGuards #-}
+{-# LANGUAGE FlexibleContexts, MultiParamTypeClasses, TypeSynonymInstances, PatternGuards #-}
 
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Hidden
+-- Description :  Hide windows from layouts.
 -- Copyright   :  (c) Peter Jones 2015
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -36,7 +37,7 @@ import qualified XMonad.StackSet as W
 
 --------------------------------------------------------------------------------
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.Hidden
 --
@@ -45,9 +46,9 @@ import qualified XMonad.StackSet as W
 -- > myLayout = hiddenWindows (Tall 1 (3/100) (1/2)) ||| Full ||| etc..
 -- > main = xmonad def { layoutHook = myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 --
 -- In the key bindings, do something like:
 --
@@ -57,10 +58,10 @@ import qualified XMonad.StackSet as W
 --
 -- For detailed instruction on editing the key bindings see:
 --
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 --------------------------------------------------------------------------------
-data HiddenWindows a = HiddenWindows [Window] deriving (Show, Read)
+newtype HiddenWindows a = HiddenWindows [Window] deriving (Show, Read)
 
 --------------------------------------------------------------------------------
 -- | Messages for the @HiddenWindows@ layout modifier.
@@ -68,7 +69,7 @@ data HiddenMsg = HideWindow Window                -- ^ Hide a window.
                | PopNewestHiddenWindow            -- ^ Restore window (FILO).
                | PopOldestHiddenWindow            -- ^ Restore window (FIFO).
                | PopSpecificHiddenWindow Window   -- ^ Restore specific window.
-               deriving (Typeable, Eq)
+               deriving (Eq)
 
 instance Message HiddenMsg
 
@@ -76,8 +77,8 @@ instance Message HiddenMsg
 instance LayoutModifier HiddenWindows Window where
   handleMess h@(HiddenWindows hidden) mess
     | Just (HideWindow win)              <- fromMessage mess = hideWindowMsg h win
-    | Just (PopNewestHiddenWindow)       <- fromMessage mess = popNewestMsg h
-    | Just (PopOldestHiddenWindow)       <- fromMessage mess = popOldestMsg h
+    | Just PopNewestHiddenWindow         <- fromMessage mess = popNewestMsg h
+    | Just PopOldestHiddenWindow         <- fromMessage mess = popOldestMsg h
     | Just (PopSpecificHiddenWindow win) <- fromMessage mess = popSpecificMsg win h
     | Just ReleaseResources              <- fromMessage mess = doUnhook
     | otherwise                                        = return Nothing
@@ -117,7 +118,7 @@ popHiddenWindow = sendMessage . PopSpecificHiddenWindow
 --------------------------------------------------------------------------------
 hideWindowMsg :: HiddenWindows a -> Window -> X (Maybe (HiddenWindows a))
 hideWindowMsg (HiddenWindows hidden) win = do
-  modify (\s -> s { windowset = W.delete' win $ windowset s })
+  modifyWindowSet $ W.delete' win
   return . Just . HiddenWindows $ hidden ++ [win]
 
 --------------------------------------------------------------------------------
@@ -142,9 +143,9 @@ popSpecificMsg win (HiddenWindows hiddenWins) = if win `elem` hiddenWins
   then do
     restoreWindow win
     return . Just . HiddenWindows $ filter (/= win) hiddenWins
-  else 
+  else
     return . Just . HiddenWindows $ hiddenWins
-  
+
 --------------------------------------------------------------------------------
 restoreWindow :: Window -> X ()
 restoreWindow = windows . W.insertUp

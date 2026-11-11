@@ -3,6 +3,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Stoppable
+-- Description :  A layout modifier to stop all non-visible processes.
 -- Copyright   :  (c) Anton Vorontsov <anton@enomsg.org> 2014
 -- License     :  BSD-style (as xmonad)
 --
@@ -47,6 +48,7 @@ module XMonad.Layout.Stoppable
     ) where
 
 import XMonad
+import XMonad.Prelude
 import XMonad.Actions.WithAll
 import XMonad.Util.WindowProperties
 import XMonad.Util.RemoteWindows
@@ -54,11 +56,9 @@ import XMonad.Util.Timer
 import XMonad.StackSet hiding (filter)
 import XMonad.Layout.LayoutModifier
 import System.Posix.Signals
-import Data.Maybe
-import Control.Monad
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad
 -- > import XMonad.Layout.Stoppable
@@ -75,9 +75,9 @@ import Control.Monad
 -- layoutHook you have to provide manageHook from
 -- "XMonad.Util.RemoteWindows" module.
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 signalWindow :: Signal -> Window -> X ()
 signalWindow s w = do
@@ -121,7 +121,7 @@ instance LayoutModifier Stoppable Window where
           where run = sigStoppableWorkspacesHook m >> return Nothing
     handleMess (Stoppable m d _) msg
         | Just Hide <- fromMessage msg =
-            (Just . Stoppable m d . Just) <$> startTimer d
+            Just . Stoppable m d . Just <$> startTimer d
         | otherwise = return Nothing
 
 -- | Convert a layout to a stoppable layout using the default mark

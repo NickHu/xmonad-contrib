@@ -1,13 +1,13 @@
-{-# LANGUAGE DeriveDataTypeable    #-}
+{-# LANGUAGE CPP                   #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternGuards         #-}
-{-# LANGUAGE TypeSynonymInstances  #-}
-{-# LANGUAGE CPP                   #-}
+{-# LANGUAGE TupleSections         #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Decoration
+-- Description :  A layout modifier and a class for easily creating decorated layouts.
 -- Copyright   :  (c) 2007 Andrea Rossato, 2009 Jan Vornberger
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -36,12 +36,10 @@ module XMonad.Layout.Decoration
     , DecorationState, OrigWin
     ) where
 
-import Control.Monad (when)
-import Data.Maybe
-import Data.List
 import Foreign.C.Types(CInt)
 
 import XMonad
+import XMonad.Prelude
 import qualified XMonad.StackSet as W
 import XMonad.Hooks.UrgencyHook
 import XMonad.Layout.LayoutModifier
@@ -103,7 +101,7 @@ instance Default Theme where
           , urgentColor         = "#FFFF00"
           , activeBorderColor   = "#FFFFFF"
           , inactiveBorderColor = "#BBBBBB"
-          , urgentBorderColor   = "##00FF00"
+          , urgentBorderColor   = "#00FF00"
           , activeBorderWidth   = 1
           , inactiveBorderWidth = 1
           , urgentBorderWidth   = 1
@@ -123,7 +121,7 @@ instance Default Theme where
 
 -- | A 'Decoration' layout modifier will handle 'SetTheme', a message
 -- to dynamically change the decoration 'Theme'.
-data DecorationMsg = SetTheme Theme deriving ( Typeable )
+newtype DecorationMsg = SetTheme Theme
 instance Message DecorationMsg
 
 -- | The 'Decoration' state component, where the list of decorated
@@ -155,7 +153,7 @@ class (Read (ds a), Show (ds a), Eq a) => DecorationStyle ds a where
 
     -- | The description that the 'Decoration' modifier will display.
     describeDeco :: ds a -> String
-    describeDeco ds = show ds
+    describeDeco = show
 
     -- | Shrink the window's rectangle when applying a decoration.
     shrink :: ds a -> Rectangle -> Rectangle -> Rectangle
@@ -163,7 +161,7 @@ class (Read (ds a), Show (ds a), Eq a) => DecorationStyle ds a where
 
     -- | The decoration event hook
     decorationEventHook :: ds a -> DecorationState -> Event -> X ()
-    decorationEventHook ds s e = handleMouseFocusDrag ds s e
+    decorationEventHook = handleMouseFocusDrag
 
     -- | A hook that can be used to catch the cases when the user
     -- clicks on the decoration. If you return True here, the click event
@@ -179,7 +177,7 @@ class (Read (ds a), Show (ds a), Eq a) => DecorationStyle ds a where
     -- The hook can be overwritten if a different way of handling the dragging
     -- is required.
     decorationWhileDraggingHook :: ds a -> CInt -> CInt -> (Window, Rectangle) -> Position -> Position -> X ()
-    decorationWhileDraggingHook _ ex ey (mainw, r) x y = handleDraggingInProgress ex ey (mainw, r) x y
+    decorationWhileDraggingHook _ = handleDraggingInProgress
 
     -- | This hoook is called after a window has been dragged using the decoration.
     decorationAfterDraggingHook :: ds a -> (Window, Rectangle) -> Window -> X ()
@@ -244,10 +242,9 @@ instance (DecorationStyle ds Window, Shrinker s) => LayoutModifier (Decoration d
                                     toDel = todel d dwrs
                                     toAdd = toadd a wrs
                                 deleteDecos (map snd toDel)
-                                let ndwrs = zip toAdd $ repeat (Nothing,Nothing)
+                                let ndwrs = map (, (Nothing,Nothing)) toAdd
                                 ndecos <- resync (ndwrs ++ del_dwrs d dwrs) wrs
                                 processState (s {decos = ndecos })
-        | otherwise        = return (wrs, Nothing)
 
         where
           ws        = map fst wrs
@@ -288,7 +285,7 @@ instance (DecorationStyle ds Window, Shrinker s) => LayoutModifier (Decoration d
                               updateDecos sh t (font s) ndwrs
                               return (dwrs_to_wrs ndwrs, Just (Decoration (I (Just (s {decos = ndwrs}))) sh t ds))
 
-    handleMess (Decoration (I (Just s@(DS {decos = dwrs}))) sh t ds) m
+    handleMess (Decoration (I (Just s@DS{decos = dwrs})) sh t ds) m
         | Just e <- fromMessage m                = do decorationEventHook ds s e
                                                       handleEvent sh t s e
                                                       return Nothing
@@ -307,9 +304,9 @@ instance (DecorationStyle ds Window, Shrinker s) => LayoutModifier (Decoration d
 handleEvent :: Shrinker s => s -> Theme -> DecorationState -> Event -> X ()
 handleEvent sh t (DS dwrs fs) e
     | PropertyEvent {ev_window = w} <- e
-    , Just i <- w `elemIndex`             (map (fst . fst) dwrs) = updateDeco sh t fs (dwrs !! i)
+    , Just i <- w `elemIndex` map (fst . fst) dwrs      = updateDeco sh t fs (dwrs !! i)
     | ExposeEvent   {ev_window = w} <- e
-    , Just i <- w `elemIndex` (catMaybes $ map (fst . snd) dwrs) = updateDeco sh t fs (dwrs !! i)
+    , Just i <- w `elemIndex` mapMaybe (fst . snd) dwrs = updateDeco sh t fs (dwrs !! i)
 handleEvent _ _ _ _ = return ()
 
 -- | Mouse focus and mouse drag are handled by the same function, this
@@ -321,11 +318,11 @@ handleMouseFocusDrag ds (DS dwrs _) ButtonEvent { ev_window     = ew
                                                 , ev_y_root     = ey }
     | et == buttonPress
     , Just ((mainw,r), (_, decoRectM)) <- lookFor ew dwrs = do
-        let Just (Rectangle dx _ dwh _) = decoRectM
+        let Rectangle dx _ dwh _ = fromJust decoRectM
             distFromLeft = ex - fi dx
             distFromRight = fi dwh - (ex - fi dx)
         dealtWith <- decorationCatchClicksHook ds mainw (fi distFromLeft) (fi distFromRight)
-        when (not dealtWith) $
+        unless dealtWith $
             mouseDrag (\x y -> focus mainw >> decorationWhileDraggingHook ds ex ey (mainw, r) x y)
                         (decorationAfterDraggingHook ds (mainw, r) ew)
 handleMouseFocusDrag _ _ _ = return ()
@@ -380,17 +377,21 @@ createDecos t ds sc s wrs ((w,r):xs) = do
 createDecos _ _ _ _ _ [] = return []
 
 createDecoWindow :: Theme -> Rectangle -> X Window
-createDecoWindow t r = let mask = Just (exposureMask .|. buttonPressMask) in
-                       createNewWindow r mask (inactiveColor t) True
+createDecoWindow t r = do
+  let mask = Just (exposureMask .|. buttonPressMask)
+  w <- createNewWindow r mask (inactiveColor t) True
+  d <- asks display
+  io $ setClassHint d w (ClassHint "xmonad-decoration" "xmonad")
+  pure w
 
 showDecos :: [DecoWin] -> X ()
-showDecos = showWindows . catMaybes . map fst . filter (isJust . snd)
+showDecos = showWindows . mapMaybe fst . filter (isJust . snd)
 
 hideDecos :: [DecoWin] -> X ()
-hideDecos = hideWindows . catMaybes . map fst
+hideDecos = hideWindows . mapMaybe fst
 
 deleteDecos :: [DecoWin] -> X ()
-deleteDecos = deleteWindows . catMaybes . map fst
+deleteDecos = deleteWindows . mapMaybe fst
 
 updateDecos :: Shrinker s => s -> Theme -> XMonadFont -> [(OrigWin,DecoWin)] -> X ()
 updateDecos s t f = mapM_ $ updateDeco s t f
@@ -399,13 +400,17 @@ updateDecos s t f = mapM_ $ updateDeco s t f
 -- structure and the needed 'Rectangle's
 updateDeco :: Shrinker s => s -> Theme -> XMonadFont -> (OrigWin,DecoWin) -> X ()
 updateDeco sh t fs ((w,_),(Just dw,Just (Rectangle _ _ wh ht))) = do
-  nw  <- getName w
+  -- xmonad-contrib #809
+  -- qutebrowser will happily shovel a 389K multiline string into @_NET_WM_NAME@
+  -- and the 'defaultShrinker' (a) doesn't handle multiline strings well (b) is
+  -- quadratic due to using 'init'
+  nw  <- fmap (take 2048 . takeWhile (/= '\n') . show) (getName w)
   ur  <- readUrgents
   dpy <- asks display
-  let focusColor win ic ac uc = (maybe ic (\focusw -> case () of
-                                                       _ | focusw == win -> ac
-                                                         | win `elem` ur -> uc
-                                                         | otherwise     -> ic) . W.peek)
+  let focusColor win ic ac uc = maybe ic (\focusw -> case () of
+                                                      _ | focusw == win -> ac
+                                                        | win `elem` ur -> uc
+                                                        | otherwise     -> ic) . W.peek
                                 <$> gets windowset
   (bc,borderc,borderw,tc) <-
     focusColor w (inactiveColor t, inactiveBorderColor t, inactiveBorderWidth t, inactiveTextColor t)
@@ -413,7 +418,7 @@ updateDeco sh t fs ((w,_),(Just dw,Just (Rectangle _ _ wh ht))) = do
                  (urgentColor   t, urgentBorderColor   t, urgentBorderWidth   t, urgentTextColor   t)
   let s = shrinkIt sh
   name <- shrinkWhile s (\n -> do size <- io $ textWidthXMF dpy fs n
-                                  return $ size > fromIntegral wh - fromIntegral (ht `div` 2)) (show nw)
+                                  return $ size > fromIntegral wh - fromIntegral (ht `div` 2)) nw
   let als = AlignCenter : map snd (windowTitleAddons t)
       strs = name : map fst (windowTitleAddons t)
       i_als = map snd (windowTitleIcons t)

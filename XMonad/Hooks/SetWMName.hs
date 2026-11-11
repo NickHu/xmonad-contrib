@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Hooks.SetWMName
+-- Description :  Set the WM name to a given string.
 -- Copyright   :  © 2007 Ivan Tarasov <Ivan.Tarasov@gmail.com>
 -- License     :  BSD
 --
@@ -11,10 +12,10 @@
 -- Sets the WM name to a given string, so that it could be detected using
 -- _NET_SUPPORTING_WM_CHECK protocol.
 --
--- May be useful for making Java GUI programs work, just set WM name to "LG3D"
+-- May be useful for making Java GUI programs work, just set WM name to \"LG3D\"
 -- and use Java 1.6u1 (1.6.0_01-ea-b03 works for me) or later.
 --
--- To your @~\/.xmonad\/xmonad.hs@ file, add the following line:
+-- To your @xmonad.hs@ file, add the following line:
 --
 -- > import XMonad.Hooks.SetWMName
 --
@@ -32,7 +33,7 @@
 -- fails miserably by guessing absolutely bogus values.
 --
 -- For detailed instructions on editing your hooks, see
--- "XMonad.Doc.Extending#4".
+-- <https://xmonad.org/TUTORIAL.html the tutorial> and "XMonad.Doc.Extending".
 -----------------------------------------------------------------------------
 
 module XMonad.Hooks.SetWMName (
@@ -41,15 +42,11 @@ module XMonad.Hooks.SetWMName (
     )
   where
 
-import Control.Monad (join)
-import Data.Char (ord)
-import Data.List (nub)
-import Data.Maybe (fromJust, listToMaybe, maybeToList)
 import Foreign.C.Types (CChar)
-
 import Foreign.Marshal.Alloc (alloca)
 
 import XMonad
+import XMonad.Prelude (fromJust, join, listToMaybe, maybeToList, nub, ord)
 
 -- | sets WM name
 setWMName :: String -> X ()
@@ -72,7 +69,7 @@ setWMName name = do
         changeProperty32 dpy root atom_NET_SUPPORTED_ATOM aTOM propModeReplace (nub $ fromIntegral atom_NET_SUPPORTING_WM_CHECK : fromIntegral atom_NET_WM_NAME : supportedList)
   where
     latin1StringToCCharList :: String -> [CChar]
-    latin1StringToCCharList str = map (fromIntegral . ord) str
+    latin1StringToCCharList = map (fromIntegral . ord)
 
 netSupportingWMCheckAtom :: X Atom
 netSupportingWMCheckAtom = getAtom "_NET_SUPPORTING_WM_CHECK"
@@ -117,4 +114,3 @@ getSupportWindow = withDisplay $ \dpy -> do
 -- | Get WM name.
 getWMName :: X String
 getWMName = getSupportWindow >>= runQuery title
-

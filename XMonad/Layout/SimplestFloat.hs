@@ -1,7 +1,8 @@
-{-# LANGUAGE TypeSynonymInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE TypeSynonymInstances, MultiParamTypeClasses, TupleSections #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.SimplestFloat
+-- Description :  Like "XMonad.Layout.SimpleFloat" but without the decoration.
 -- Copyright   :  (c) 2008 Jussi Mäki
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -19,15 +20,15 @@ module XMonad.Layout.SimplestFloat
     , SimplestFloat
     ) where
 
+import XMonad.Prelude (fi)
 import XMonad
 import qualified XMonad.StackSet as S
 import XMonad.Layout.WindowArranger
 import XMonad.Layout.LayoutModifier
-import XMonad.Util.XUtils (fi)
 
 -- $usage
 -- You can use this module with the following in your
--- @~\/.xmonad\/xmonad.hs@:
+-- @xmonad.hs@:
 --
 -- > import XMonad.Layout.SimplestFloat
 --
@@ -36,9 +37,9 @@ import XMonad.Util.XUtils (fi)
 -- > myLayout = simplestFloat ||| Full ||| etc..
 -- > main = xmonad def { layoutHook = myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 -- | A simple floating layout where every window is placed according
 -- to the window's initial attributes.
@@ -47,8 +48,8 @@ simplestFloat = windowArrangeAll SF
 
 data SimplestFloat a = SF deriving (Show, Read)
 instance LayoutClass SimplestFloat Window where
-    doLayout SF sc (S.Stack w l r) = fmap (flip (,) Nothing)
-                                   $ mapM (getSize sc) (w : reverse l ++ r)
+    doLayout SF sc (S.Stack w l r) =  (, Nothing)
+                                  <$> mapM (getSize sc) (w : reverse l ++ r)
     description _ = "SimplestFloat"
 
 getSize :: Rectangle -> Window -> X (Window,Rectangle)
@@ -58,6 +59,6 @@ getSize (Rectangle rx ry _ _) w = do
   wa <- io $ getWindowAttributes d w
   let x  =  max rx $ fi $ wa_x wa
       y  =  max ry $ fi $ wa_y wa
-      wh = (fi $ wa_width  wa) + (bw * 2)
-      ht = (fi $ wa_height wa) + (bw * 2)
+      wh = fi (wa_width  wa) + (bw * 2)
+      ht = fi (wa_height wa) + (bw * 2)
   return (w, Rectangle x y wh ht)

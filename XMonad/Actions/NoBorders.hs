@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.NoBorders
+-- Description :  Helper functions for dealing with window borders.
 -- Copyright   :  (c) Lukas Mai
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -26,8 +27,7 @@ import XMonad
 toggleBorder :: Window -> X ()
 toggleBorder w = do
     bw <- asks (borderWidth . config)
-    withDisplay $ \d -> io $ do
-        cw <- wa_border_width <$> getWindowAttributes d w
-        if cw == 0
+    withDisplay $ \d -> withWindowAttributes d w $ \wa -> io $
+        if wa_border_width wa == 0
             then setWindowBorderWidth d w bw
             else setWindowBorderWidth d w 0

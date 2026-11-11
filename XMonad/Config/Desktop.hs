@@ -3,6 +3,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Config.Desktop
+-- Description  : Core settings for interfacing with desktop environments.
 -- Copyright    : (c) Spencer Janssen <spencerjanssen@gmail.com>
 -- License      : BSD
 --
@@ -23,11 +24,11 @@ module XMonad.Config.Desktop (
     -- specification. Extra xmonad settings unique to specific DE's are
     -- added by overriding or modifying @desktopConfig@ fields in the
     -- same way that the default configuration is customized in
-    -- @~\/.xmonad/xmonad.hs@.
+    -- @xmonad.hs@.
     --
     -- For more information about EWMH see:
     --
-    -- <http://standards.freedesktop.org/wm-spec/wm-spec-latest.html>
+    -- <https://specifications.freedesktop.org/wm/latest/>
     --
     -- See also: "XMonad.Hooks.EwmhDesktops", "XMonad.Hooks.ManageDocks",
     -- "XMonad.Util.EZConfig".
@@ -57,8 +58,8 @@ module XMonad.Config.Desktop (
 import XMonad
 import XMonad.Hooks.ManageDocks
 import XMonad.Hooks.EwmhDesktops
+import XMonad.Layout.LayoutModifier (ModifiedLayout)
 import XMonad.Util.Cursor
-import qualified XMonad.StackSet as W
 
 import qualified Data.Map as M
 
@@ -71,7 +72,7 @@ import qualified Data.Map as M
 -- <http://haskell.org/haskellwiki/Xmonad>
 --
 -- To configure xmonad for use with a DE or with DE tools like panels
--- and pagers, in place of @def@ in your @~\/.xmonad/xmonad.hs@,
+-- and pagers, in place of @def@ in your @xmonad.hs@,
 -- use @desktopConfig@ or one of the other desktop configs from the
 -- @XMonad.Config@ namespace. The following setup and customization examples
 -- work the same way for the other desktop configs as for @desktopConfig@.
@@ -90,7 +91,7 @@ import qualified Data.Map as M
 
 -- $customizing
 -- To customize a desktop config, modify its fields as is illustrated with
--- the default configuration @def@ in "XMonad.Doc.Extending#Extending xmonad".
+-- the default configuration @def@ in <https://xmonad.org/TUTORIAL.html the tutorial>.
 
 -- $layouts
 -- See also "XMonad.Util.EZConfig" for more options for modifying key bindings.
@@ -105,7 +106,7 @@ import qualified Data.Map as M
 -- > main =
 -- >   xmonad $ desktopConfig {
 -- >     -- add manage hooks while still ignoring panels and using default manageHooks
--- >       manageHook = myManageHook <+> manageHook desktopConfig
+-- >       manageHook = myManageHook <> manageHook desktopConfig
 -- >
 -- >     -- add a fullscreen tabbed layout that does not avoid covering
 -- >     -- up desktop panels before the desktop layouts
@@ -128,7 +129,7 @@ import qualified Data.Map as M
 -- To add to the logHook while still sending workspace and window information
 -- to DE apps use something like:
 --
--- >  , logHook = myLogHook <+> logHook desktopConfig
+-- >  , logHook = myLogHook <> logHook desktopConfig
 --
 -- Or for more elaborate logHooks you can use @do@:
 --
@@ -142,7 +143,7 @@ import qualified Data.Map as M
 -- To customize xmonad's event handling while still having it respond
 -- to EWMH events from pagers, task bars:
 --
--- >  , handleEventHook = myEventHooks <+> handleEventHook desktopConfig
+-- >  , handleEventHook = myEventHooks <> handleEventHook desktopConfig
 --
 -- or 'mconcat' if you write a list event of event hooks
 --
@@ -156,7 +157,7 @@ import qualified Data.Map as M
 
 -- $startupHook
 -- To run the desktop startupHook, plus add further actions to be run each
--- time xmonad starts or restarts, use '<+>' to combine actions as in the
+-- time xmonad starts or restarts, use '<>' to combine actions as in the
 -- logHook example, or something like:
 --
 -- >  , startupHook = do
@@ -165,19 +166,16 @@ import qualified Data.Map as M
 -- >        adjustEventInput
 --
 
+desktopConfig :: XConfig (ModifiedLayout AvoidStruts
+                             (Choose Tall (Choose (Mirror Tall) Full)))
 desktopConfig = docks $ ewmh def
-    { startupHook     = setDefaultCursor xC_left_ptr <+> startupHook def
+    { startupHook     = setDefaultCursor xC_left_ptr <> startupHook def
     , layoutHook      = desktopLayoutModifiers $ layoutHook def
-    , logHook         = desktopLogHook <+> logHook def
-    , keys            = desktopKeys <+> keys def }
+    , keys            = desktopKeys <> keys def }
 
-desktopKeys (XConfig {modMask = modm}) = M.fromList $
+desktopKeys :: XConfig l -> M.Map (KeyMask, KeySym) (X ())
+desktopKeys XConfig{modMask = modm} = M.fromList
     [ ((modm, xK_b), sendMessage ToggleStruts) ]
 
-desktopLayoutModifiers layout = avoidStruts layout
-
--- | 'logHook' preserving old 'ewmh' behavior to switch workspace and focus to
--- activated window.
-desktopLogHook :: X ()
-desktopLogHook      = activateLogHook (reader W.focusWindow >>= doF)
-
+desktopLayoutModifiers :: LayoutClass l a => l a -> ModifiedLayout AvoidStruts l a
+desktopLayoutModifiers = avoidStruts

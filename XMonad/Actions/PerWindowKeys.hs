@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.PerWindowKeys
+-- Description :  Define key-bindings on a per-window basis.
 -- Copyright   :  (c) Wilson Sales, 2019
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -8,7 +9,7 @@
 -- Stability   :  unstable
 -- Portability :  unportable
 --
--- Define key-bindings on per-window basis.
+-- Define key-bindings on a per-window basis.
 --
 -----------------------------------------------------------------------------
 
@@ -23,7 +24,7 @@ import XMonad
 
 -- $usage
 --
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- >  import XMonad.Actions.PerWindowKeys
 --
@@ -40,7 +41,7 @@ import XMonad
 -- doThisIfTheOthersFail)]@.
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 -- | Run an action if a Query holds true. Doesn't stop at the first one that
 -- does, however, and could potentially run all actions.

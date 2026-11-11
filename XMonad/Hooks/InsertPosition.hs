@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Hooks.InsertPosition
+-- Description :  Configure where new windows should be added and how focus should shift.
 -- Copyright   :  (c) 2009 Adam Vogt
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -16,23 +17,30 @@
 module XMonad.Hooks.InsertPosition (
     -- * Usage
     -- $usage
-    insertPosition
+    setupInsertPosition, insertPosition
     ,Focus(..), Position(..)
     ) where
 
-import XMonad(ManageHook, MonadReader(ask))
+import XMonad (ManageHook, MonadReader (ask), XConfig (manageHook))
+import XMonad.Prelude (Endo (Endo), find)
 import qualified XMonad.StackSet as W
-import Data.Maybe(fromMaybe)
-import Data.List(find)
-import Data.Monoid(Endo(Endo))
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module by importing it in your @xmonad.hs@:
 --
 -- > import XMonad.Hooks.InsertPosition
--- > xmonad def { manageHook = insertPosition Master Newer <+> myManageHook }
 --
--- You should you put the manageHooks that use 'doShift' to take effect
+-- You then just have to add 'setupInsertPosition' to your @main@ function:
+--
+-- > main = xmonad $ … $ setupInsertPosition Master Newer $ def { … }
+--
+-- Alternatively (i.e., you should /not/ do this if you already have set
+-- up the above combinator), you can also directly insert
+-- 'insertPosition' into your manageHook:
+--
+-- > xmonad def { manageHook = insertPosition Master Newer <> myManageHook }
+--
+-- NOTE: You should you put the manageHooks that use 'doShift' to take effect
 -- /before/ 'insertPosition', so that the window order will be consistent.
 -- Because ManageHooks compose from right to left (like function composition
 -- '.'), this means that 'insertPosition' should be the leftmost ManageHook.
@@ -40,13 +48,18 @@ import Data.Monoid(Endo(Endo))
 data Position = Master | End | Above | Below
 data Focus = Newer | Older
 
+-- | A combinator for setting up 'insertPosition'.
+setupInsertPosition :: Position -> Focus -> XConfig a -> XConfig a
+setupInsertPosition pos foc cfg =
+  cfg{ manageHook = insertPosition pos foc <> manageHook cfg }
+
 -- | insertPosition. A manage hook for placing new windows. XMonad's default is
 -- the same as using: @insertPosition Above Newer@.
 insertPosition :: Position -> Focus -> ManageHook
 insertPosition pos foc = Endo . g <$> ask
   where
     g w = viewingWs w (updateFocus w . ins w . W.delete' w)
-    ins w = (\f ws -> fromMaybe id (W.focusWindow <$> W.peek ws) $ f ws) $
+    ins w = (\f ws -> maybe id W.focusWindow (W.peek ws) $ f ws) $
         case pos of
             Master -> W.insertUp w . W.focusMaster
             End    -> insertDown w . W.modify' focusLast'
@@ -69,5 +82,7 @@ insertDown :: (Eq a) => a -> W.StackSet i l a s sd -> W.StackSet i l a s sd
 insertDown w = W.swapDown . W.insertUp w
 
 focusLast' ::  W.Stack a -> W.Stack a
-focusLast' st = let ws = W.integrate st
-    in W.Stack (last ws) (tail $ reverse ws) []
+focusLast' st =
+  case reverse (W.integrate st) of
+    []       -> st
+    (l : ws) -> W.Stack l ws []

@@ -1,8 +1,7 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.SwapPromote
+-- Description :  Track the master window history per workspace.
 -- Copyright   :  (c) 2018 Yclept Nemo
 -- License     :  BSD-style (see LICENSE)
 --
@@ -57,15 +56,14 @@ module XMonad.Actions.SwapPromote
 
 
 import           XMonad
+import           XMonad.Prelude
 import qualified XMonad.StackSet                as W
 import qualified XMonad.Util.ExtensibleState    as XS
 
 import qualified Data.Map                       as M
 import qualified Data.Set                       as S
-import           Data.List
-import           Data.Maybe
 import           Control.Arrow
-import           Control.Monad
+import qualified Data.List.NonEmpty             as NE
 
 
 -- $usage
@@ -102,7 +100,7 @@ import           Control.Monad
 -- So far floating windows have been treated no differently than tiled windows
 -- even though their positions are independent of the stack. Often, yanking
 -- floating windows in and out of the workspace will obliterate the stack
--- history - particularly frustrating with 'XMonad.Util.Scratchpad' since it is
+-- history - particularly frustrating with "XMonad.Util.Scratchpad" since it is
 -- toggled so frequenty and always replaces the master window. That's why the
 -- swap functions accept a boolean argument; when @True@ non-focused floating
 -- windows will be ignored.
@@ -117,7 +115,7 @@ import           Control.Monad
 -- Without history, the list is empty.
 newtype MasterHistory = MasterHistory
     { getMasterHistory :: M.Map WorkspaceId [Window]
-    } deriving (Read,Show,Typeable)
+    } deriving (Read,Show)
 
 instance ExtensionClass MasterHistory where
     initialValue = MasterHistory M.empty
@@ -243,8 +241,8 @@ swapApply ignoreFloats swapFunction = do
                 (r,s2) = stackSplit s1 fl' :: ([(Int,Window)],W.Stack Window)
                 (b,s3) = swapFunction pm s2
                 s4 = stackMerge s3 r
-                mh = let w = head . W.integrate $ s3
-                     in  const $ w : delete w ch
+                mh = let w = NE.head . notEmpty . W.integrate $ s3
+                     in const $ w : delete w ch
             in (b,Just s4,mh)
         (x,y,z) = maybe (False,Nothing,id) swapApply' st
     -- Any floating master windows will be added to the history when 'windows'
@@ -340,7 +338,7 @@ split' p i l =
             then (c+1,e:ys,ns)
             else (c+1,ys,e:ns)
         (c',ys',ns') = foldr accumulate (0,[],[]) $ zip [i..] l
-    in  (c',ys',snd . unzip $ ns')
+    in  (c',ys',map snd ns')
 
 -- | Wrap 'merge'' with an initial virtual index of @0@. Return only the
 -- unindexed list with elements from the leftover indexed list appended.

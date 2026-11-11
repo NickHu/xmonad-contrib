@@ -3,6 +3,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Config.Arossato
+-- Description :  Andrea Rossato's xmonad configuration.
 -- Copyright   :  (c) Andrea Rossato 2007
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -15,6 +16,7 @@
 ------------------------------------------------------------------------
 
 module XMonad.Config.Arossato
+    {-# DEPRECATED "This module contains a personal configuration, to be removed from xmonad-contrib.  If you use this module, please copy the relevant parts to your configuration or obtain a copy of it on https://xmonad.org/configurations.html and include it as a local module." #-}
     ( -- * Usage
       -- $usage
       arossatoConfig
@@ -22,7 +24,7 @@ module XMonad.Config.Arossato
 
 import qualified Data.Map as M
 
-import XMonad hiding ( (|||) )
+import XMonad
 import qualified XMonad.StackSet as W
 
 import XMonad.Actions.CycleWS
@@ -30,7 +32,6 @@ import XMonad.Hooks.DynamicLog hiding (xmobar)
 import XMonad.Hooks.ManageDocks
 import XMonad.Hooks.ServerMode
 import XMonad.Layout.Accordion
-import XMonad.Layout.LayoutCombinators
 import XMonad.Layout.Magnifier
 import XMonad.Layout.NoBorders
 import XMonad.Layout.SimpleFloat
@@ -46,7 +47,7 @@ import XMonad.Util.Themes
 
 -- $usage
 -- The simplest way to use this configuration module is to use an
--- @~\/.xmonad\/xmonad.hs@ like this:
+-- @xmonad.hs@ like this:
 --
 -- > module Main (main) where
 -- >
@@ -63,7 +64,7 @@ import XMonad.Util.Themes
 --
 -- You can use this module also as a starting point for writing your
 -- own configuration module from scratch. Save it as your
--- @~\/.xmonad\/xmonad.hs@ and:
+-- @xmonad.hs@ and:
 --
 -- 1. Change the module name from
 --
@@ -147,8 +148,8 @@ arossatoConfig = do
           , ((modMask x              , xK_F3    ), shellPrompt       def                 )
           , ((modMask x              , xK_F4    ), sshPrompt         def                 )
           , ((modMask x              , xK_F5    ), themePrompt       def                 )
-          , ((modMask x              , xK_F6    ), windowPromptGoto  def                 )
-          , ((modMask x              , xK_F7    ), windowPromptBring def                 )
+          , ((modMask x              , xK_F6    ), windowPrompt def Goto  allWindows     )
+          , ((modMask x              , xK_F7    ), windowPrompt def Bring allWindows     )
           , ((modMask x              , xK_comma ), prevWS                                )
           , ((modMask x              , xK_period), nextWS                                )
           , ((modMask x              , xK_Right ), windows W.focusDown                   )

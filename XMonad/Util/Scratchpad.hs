@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.Scratchpad
+-- Description :  Very handy hotkey-launched toggleable floating terminal window.
 -- Copyright   :  (c) Braden Shepherdson 2008
 -- License     :  BSD-style (as xmonad)
 --
@@ -12,7 +13,7 @@
 --
 -----------------------------------------------------------------------------
 
-module XMonad.Util.Scratchpad (
+module XMonad.Util.Scratchpad {-# DEPRECATED "Use XMonad.Util.NamedScratchpad instead" #-} (
   -- * Usage
   -- $usage
   scratchpadSpawnAction
@@ -26,6 +27,7 @@ module XMonad.Util.Scratchpad (
 import XMonad
 import qualified XMonad.StackSet as W
 import XMonad.Util.NamedScratchpad
+import XMonad.Util.WorkspaceCompare (filterOutWs)
 
 
 -- $usage
@@ -108,13 +110,13 @@ scratchpadManageHook :: W.RationalRect -- ^ User-specified screen rectangle.
 scratchpadManageHook rect = namedScratchpadManageHook [NS "" "" scratchpadQuery (customFloating rect)]
 
 
--- | Transforms a workspace list containing the SP workspace into one that
--- doesn't contain it. Intended for use with logHooks.
+-- | Transforms a workspace list containing the NSP workspace into one that
+-- doesn't contain it. Intended for use with 'logHook's (see
+-- 'XMonad.Hooks.StatusBar.PP.filterOutWsPP') and "XMonad.Hooks.EwmhDesktops"
+-- (see 'XMonad.Hooks.EwmhDesktops.addEwmhWorkspaceSort').
 scratchpadFilterOutWorkspace :: [WindowSpace] -> [WindowSpace]
-scratchpadFilterOutWorkspace = namedScratchpadFilterOutWorkspace
+scratchpadFilterOutWorkspace = filterOutWs [scratchpadWorkspaceTag]
 
 
 scratchpadDefaultRect :: W.RationalRect
 scratchpadDefaultRect = W.RationalRect 0.25 0.375 0.5 0.25
-
-

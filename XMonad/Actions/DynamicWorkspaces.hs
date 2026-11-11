@@ -1,8 +1,7 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.DynamicWorkspaces
+-- Description :  Provides bindings to add and delete workspaces.
 -- Copyright   :  (c) David Roundy <droundy@darcs.net>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -35,19 +34,17 @@ module XMonad.Actions.DynamicWorkspaces (
                                          WorkspaceIndex
                                        ) where
 
+import XMonad.Prelude (find, isNothing, nub, when)
 import XMonad hiding (workspaces)
 import XMonad.StackSet hiding (filter, modify, delete)
 import XMonad.Prompt.Workspace ( Wor(Wor), workspacePrompt )
-import XMonad.Prompt ( XPConfig, mkXPrompt )
+import XMonad.Prompt ( XPConfig, mkComplFunFromList', mkXPrompt )
 import XMonad.Util.WorkspaceCompare ( getSortByIndex )
-import Data.List (find)
-import Data.Maybe (isNothing)
-import Control.Monad (when)
 import qualified Data.Map.Strict as Map
 import qualified XMonad.Util.ExtensibleState as XS
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@ file:
+-- You can use this module with the following in your @xmonad.hs@ file:
 --
 -- > import XMonad.Actions.DynamicWorkspaces
 -- > import XMonad.Actions.CopyWindow(copy)
@@ -78,7 +75,7 @@ import qualified XMonad.Util.ExtensibleState as XS
 -- >    zip (zip (repeat (modm .|. controlMask)) [xK_1..xK_9]) (map (setWorkspaceIndex) [1..])
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings". See also the documentation for
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>. See also the documentation for
 -- "XMonad.Actions.CopyWindow", 'windows', 'shift', and 'XPConfig'.
 
 type WorkspaceTag = String
@@ -88,8 +85,8 @@ type WorkspaceIndex  = Int
 
 -- | Internal dynamic project state that stores a mapping between
 --   workspace indexes and workspace tags.
-data DynamicWorkspaceState = DynamicWorkspaceState {workspaceIndexMap :: Map.Map WorkspaceIndex WorkspaceTag}
-  deriving (Typeable, Read, Show)
+newtype DynamicWorkspaceState = DynamicWorkspaceState {workspaceIndexMap :: Map.Map WorkspaceIndex WorkspaceTag}
+  deriving (Read, Show)
 
 instance ExtensionClass DynamicWorkspaceState where
   initialValue = DynamicWorkspaceState Map.empty
@@ -110,31 +107,27 @@ withWorkspaceIndex job widx = do
       ilookup :: WorkspaceIndex -> X (Maybe WorkspaceTag)
       ilookup idx = Map.lookup idx <$> XS.gets workspaceIndexMap
 
-
-mkCompl :: [String] -> String -> IO [String]
-mkCompl l s = return $ filter (\x -> take (length s) x == s) l
-
 withWorkspace :: XPConfig -> (String -> X ()) -> X ()
 withWorkspace c job = do ws <- gets (workspaces . windowset)
                          sort <- getSortByIndex
                          let ts = map tag $ sort ws
                              job' t | t `elem` ts = job t
                                     | otherwise = addHiddenWorkspace t >> job t
-                         mkXPrompt (Wor "") c (mkCompl ts) job'
+                         mkXPrompt (Wor "") c (mkComplFunFromList' c ts) job'
 
 renameWorkspace :: XPConfig -> X ()
 renameWorkspace conf = workspacePrompt conf renameWorkspaceByName
 
 renameWorkspaceByName :: String -> X ()
 renameWorkspaceByName w = do old  <- gets (currentTag . windowset)
-			     windows $ \s -> let sett wk = wk { tag = w }
-						 setscr scr = scr { workspace = sett $ workspace scr }
-						 sets q = q { current = setscr $ current q }
+                             windows $ \s -> let sett wk = wk { tag = w }
+                                                 setscr scr = scr { workspace = sett $ workspace scr }
+                                                 sets q = q { current = setscr $ current q }
                                              in sets $ removeWorkspace' w s
-			     updateIndexMap old w
-  where updateIndexMap old new = do
+                             updateIndexMap old w
+  where updateIndexMap oldIM newIM = do
           wmap <- XS.gets workspaceIndexMap
-          XS.modify $ \s -> s {workspaceIndexMap = Map.map (\t -> if t == old then new else t) wmap}
+          XS.modify $ \s -> s {workspaceIndexMap = Map.map (\t -> if t == oldIM then newIM else t) wmap}
 
 toNthWorkspace :: (String -> X ()) -> Int -> X ()
 toNthWorkspace job wnum = do sort <- getSortByIndex
@@ -241,20 +234,20 @@ isEmpty t = do wsl <- gets $ workspaces . windowset
                return $ maybe True (isNothing . stack) mws
 
 addHiddenWorkspace' :: (Workspace i l a -> [Workspace i l a] -> [Workspace i l a]) -> i -> l -> StackSet i l a sid sd -> StackSet i l a sid sd
-addHiddenWorkspace' add newtag l s@(StackSet { hidden = ws }) = s { hidden = add (Workspace newtag l Nothing) ws }
+addHiddenWorkspace' add newtag l s@StackSet{ hidden = ws } = s { hidden = add (Workspace newtag l Nothing) ws }
 
 -- | Remove the hidden workspace with the given tag from the StackSet, if
 --   it exists. All the windows in that workspace are moved to the current
 --   workspace.
-removeWorkspace' :: (Eq i) => i -> StackSet i l a sid sd -> StackSet i l a sid sd
-removeWorkspace' torem s@(StackSet { current = scr@(Screen { workspace = wc })
-                                   , hidden = hs })
+removeWorkspace' :: (Eq i, Eq a) => i -> StackSet i l a sid sd -> StackSet i l a sid sd
+removeWorkspace' torem s@StackSet{ current = scr@Screen { workspace = wc }
+                                 , hidden  = hs }
     = let (xs, ys) = break ((== torem) . tag) hs
       in removeWorkspace'' xs ys
    where meld Nothing Nothing = Nothing
          meld x Nothing = x
          meld Nothing x = x
-         meld (Just x) (Just y) = differentiate (integrate x ++ integrate y)
+         meld (Just x) (Just y) = differentiate . nub $ integrate x ++ integrate y
          removeWorkspace'' xs (y:ys) = s { current = scr { workspace = wc { stack = meld (stack y) (stack wc) } }
                                          , hidden = xs ++ ys }
          removeWorkspace'' _  _      = s

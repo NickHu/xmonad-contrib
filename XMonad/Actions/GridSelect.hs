@@ -1,7 +1,8 @@
-{-# LANGUAGE ScopedTypeVariables, GeneralizedNewtypeDeriving, TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, TupleSections #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.GridSelect
+-- Description :  Display items in a 2D grid and select from it with the keyboard or the mouse.
 -- Copyright   :  Clemens Fruhwirth <clemens@endorphin.org>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -47,6 +48,7 @@ module XMonad.Actions.GridSelect (
     fromClassName,
     stringColorizer,
     colorRangeFromClassName,
+    stringToRatio,
 
     -- * Navigation Mode assembly
     TwoD,
@@ -78,15 +80,14 @@ module XMonad.Actions.GridSelect (
     -- * Types
     TwoDState,
     ) where
-import Data.Maybe
+import Control.Arrow ((***))
 import Data.Bits
-import Data.Char
 import Data.Ord (comparing)
 import Control.Monad.State
-import Control.Arrow
 import Data.List as L
 import qualified Data.Map as M
 import XMonad hiding (liftX)
+import XMonad.Prelude
 import XMonad.Util.Font
 import XMonad.Prompt (mkUnmanagedWindow)
 import XMonad.StackSet as W
@@ -94,12 +95,13 @@ import XMonad.Layout.Decoration
 import XMonad.Util.NamedWindows
 import XMonad.Actions.WindowBringer (bringWindow)
 import Text.Printf
-import System.Random (mkStdGen, genRange, next)
+import System.Random (mkStdGen, randomR)
 import Data.Word (Word8)
+import qualified Data.List.NonEmpty as NE
 
 -- $usage
 --
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- >    import XMonad.Actions.GridSelect
 --
@@ -123,7 +125,7 @@ import Data.Word (Word8)
 -- > ...
 -- > gsconfig1 = def { gs_cellheight = 30, gs_cellwidth = 100 }
 --
--- An example where 'buildDefaultGSConfig' is used instead of 'defaultGSConfig'
+-- An example where 'buildDefaultGSConfig' is used instead of 'def'
 -- in order to specify a custom colorizer is @gsconfig2@ (found in
 -- "XMonad.Actions.GridSelect#Colorizers"):
 --
@@ -141,8 +143,8 @@ import Data.Word (Word8)
 --
 -- Then you can bind to:
 --
--- >     ,((modm, xK_g), goToSelected  $ gsconfig2 myWinColorizer)
--- >     ,((modm, xK_p), spawnSelected $ spawnSelected defaultColorizer)
+-- >     ,((modm, xK_g), goToSelected $ gsconfig2 myWinColorizer)
+-- >     ,((modm, xK_p), spawnSelected (gsconfig2 defaultColorizer) ["xterm","gvim"])
 
 -- $keybindings
 --
@@ -201,10 +203,13 @@ data GSConfig a = GSConfig {
       gs_colorizer :: a -> Bool -> X (String, String),
       gs_font :: String,
       gs_navigate :: TwoD a (Maybe a),
+      -- ^ Customize key bindings for a GridSelect
       gs_rearranger :: Rearranger a,
       gs_originFractX :: Double,
       gs_originFractY :: Double,
-      gs_bordercolor :: String
+      gs_bordercolor :: String,
+      gs_cancelOnEmptyClick :: Bool
+      -- ^ When True, click on empty space will cancel GridSelect
 }
 
 -- | That is 'fromClassName' if you are selecting a 'Window', or
@@ -223,7 +228,7 @@ instance HasColorizer String where
 instance {-# OVERLAPPABLE #-} HasColorizer a where
     defaultColorizer _ isFg =
         let getColor = if isFg then focusedBorderColor else normalBorderColor
-        in asks $ flip (,) "black" . getColor . config
+        in asks $ (, "black") . getColor . config
 
 instance HasColorizer a => Default (GSConfig a) where
     def = buildDefaultGSConfig defaultColorizer
@@ -258,7 +263,7 @@ generateElementmap s = do
     -- Sorts the elementmap
     sortedElements = orderElementmap searchString filteredElements
     -- Case Insensitive version of isInfixOf
-    needle `isInfixOfI` haystack = (upper needle) `isInfixOf` (upper haystack)
+    needle `isInfixOfI` haystack = upper needle `isInfixOf` upper haystack
     upper = map toUpper
 
 
@@ -284,11 +289,7 @@ orderElementmap searchString elements = if not $ null searchString then sortedEl
 
 
 newtype TwoD a b = TwoD { unTwoD :: StateT (TwoDState a) X b }
-    deriving (Monad,Functor,MonadState (TwoDState a))
-
-instance Applicative (TwoD a) where
-    (<*>) = ap
-    pure = return
+    deriving (Functor, Applicative, Monad, MonadState (TwoDState a))
 
 liftX ::  X a1 -> TwoD a a1
 liftX = TwoD . lift
@@ -302,17 +303,17 @@ diamondLayer n =
   -- tr = top right
   --  r = ur ++ 90 degree clock-wise rotation of ur
   let tr = [ (x,n-x) | x <- [0..n-1] ]
-      r  = tr ++ (map (\(x,y) -> (y,-x)) tr)
-  in r ++ (map (negate *** negate) r)
+      r  = tr ++ map (\(x,y) -> (y,-x)) tr
+  in r ++ map (negate *** negate) r
 
-diamond :: (Enum a, Num a, Eq a) => [(a, a)]
-diamond = concatMap diamondLayer [0..]
+diamond :: (Enum a, Num a, Eq a) => Stream (a, a)
+diamond = fromList $ concatMap diamondLayer [0..]
 
 diamondRestrict :: Integer -> Integer -> Integer -> Integer -> [(Integer, Integer)]
 diamondRestrict x y originX originY =
   L.filter (\(x',y') -> abs x' <= x && abs y' <= y) .
   map (\(x', y') -> (x' + fromInteger originX, y' + fromInteger originY)) .
-  take 1000 $ diamond
+  takeS 1000 $ diamond
 
 findInElementMap :: (Eq a) => a -> [(a, b)] -> Maybe (a, b)
 findInElementMap pos = find ((== pos) . fst)
@@ -333,7 +334,7 @@ drawWinBox win font (fg,bg) bc ch cw text x y cp =
     drawRectangle dpy win bordergc (fromInteger x) (fromInteger y) (fromInteger cw) (fromInteger ch)
   stext <- shrinkWhile (shrinkIt shrinkText)
            (\n -> do size <- liftIO $ textWidthXMF dpy font n
-                     return $ size > (fromInteger (cw-(2*cp))))
+                     return $ size > fromInteger (cw-(2*cp)))
            text
   -- calculate the offset to vertically centre the text based on the ascender and descender
   (asc,desc) <- liftIO $ textExtentsXMF font stext
@@ -386,18 +387,25 @@ updateElementsWithColorizer colorizer elementmap = do
     mapM_ updateElement elementmap
 
 stdHandle :: Event -> TwoD a (Maybe a) -> TwoD a (Maybe a)
-stdHandle (ButtonEvent { ev_event_type = t, ev_x = x, ev_y = y }) contEventloop
+stdHandle ButtonEvent{ ev_event_type = t, ev_x = x, ev_y = y } contEventloop
     | t == buttonRelease = do
-        s@TwoDState { td_paneX = px, td_paneY = py,
-                         td_gsconfig = (GSConfig ch cw _ _ _ _ _ _ _ _) } <- get
+        s@TwoDState{ td_paneX = px
+                   , td_paneY = py
+                   , td_gsconfig = GSConfig{ gs_cellheight = ch
+                                           , gs_cellwidth = cw
+                                           , gs_cancelOnEmptyClick = cancelOnEmptyClick
+                                           }
+                   } <- get
         let gridX = (fi x - (px - cw) `div` 2) `div` cw
             gridY = (fi y - (py - ch) `div` 2) `div` ch
         case lookup (gridX,gridY) (td_elementmap s) of
              Just (_,el) -> return (Just el)
-             Nothing -> contEventloop
+             Nothing     -> if cancelOnEmptyClick
+                            then return Nothing
+                            else contEventloop
     | otherwise = contEventloop
 
-stdHandle (ExposeEvent { }) contEventloop = updateAllElements >> contEventloop
+stdHandle ExposeEvent{} contEventloop = updateAllElements >> contEventloop
 
 stdHandle _ contEventloop = contEventloop
 
@@ -410,10 +418,11 @@ makeXEventhandler keyhandler = fix $ \me -> join $ liftX $ withDisplay $ \d -> l
                              ev <- getEvent e
                              if ev_event_type ev == keyPress
                                then do
-                                  (ks,s) <- lookupString $ asKeyEvent e
+                                  (_, s) <- lookupString $ asKeyEvent e
+                                  ks <- keycodeToKeysym d (ev_keycode ev) 0
                                   return $ do
-                                      mask <- liftX $ cleanMask (ev_state ev)
-                                      keyhandler (fromMaybe xK_VoidSymbol ks, s, mask)
+                                      mask <- liftX $ cleanKeyMask <*> pure (ev_state ev)
+                                      keyhandler (ks, s, mask)
                                else
                                   return $ stdHandle ev me
 
@@ -444,7 +453,7 @@ setPos newPos = do
       oldPos = td_curpos s
   when (isJust newSelectedEl && newPos /= oldPos) $ do
     put s { td_curpos = newPos }
-    updateElements (catMaybes [(findInElementMap oldPos elmap), newSelectedEl])
+    updateElements (catMaybes [findInElementMap oldPos elmap, newSelectedEl])
 
 -- | Moves the cursor by the offsets specified
 move :: (Integer, Integer) -> TwoD a ()
@@ -544,7 +553,7 @@ navNSearch = makeXEventhandler $ shadowWithKeymap navNSearchKeyMap navNSearchDef
           ,((0,xK_Up)         , move (0,-1) >> navNSearch)
           ,((0,xK_Tab)        , moveNext >> navNSearch)
           ,((shiftMask,xK_Tab), movePrev >> navNSearch)
-          ,((0,xK_BackSpace), transformSearchString (\s -> if (s == "") then "" else init s) >> navNSearch)
+          ,((0,xK_BackSpace), transformSearchString (\s -> if s == "" then "" else init s) >> navNSearch)
           ]
         -- The navigation handler ignores unknown key symbols, therefore we const
         navNSearchDefaultHandler (_,s,_) = do
@@ -558,7 +567,7 @@ substringSearch returnNavigation = fix $ \me ->
   let searchKeyMap = M.fromList [
            ((0,xK_Escape)   , transformSearchString (const "") >> returnNavigation)
           ,((0,xK_Return)   , returnNavigation)
-          ,((0,xK_BackSpace), transformSearchString (\s -> if (s == "") then "" else init s) >> me)
+          ,((0,xK_BackSpace), transformSearchString (\s -> if s == "" then "" else init s) >> me)
           ]
       searchDefaultHandler (_,s,_) = do
           transformSearchString (++ s)
@@ -570,8 +579,8 @@ substringSearch returnNavigation = fix $ \me ->
 -- Conversion scheme as in http://en.wikipedia.org/wiki/HSV_color_space
 hsv2rgb :: Fractional a => (Integer,a,a) -> (a,a,a)
 hsv2rgb (h,s,v) =
-    let hi = (div h 60) `mod` 6 :: Integer
-        f = (((fromInteger h)/60) - (fromInteger hi)) :: Fractional a => a
+    let hi = div h 60 `mod` 6 :: Integer
+        f = ((fromInteger h/60) - fromInteger hi) :: Fractional a => a
         q = v * (1-f)
         p = v * (1-s)
         t = v * (1-(1-f)*s)
@@ -588,19 +597,19 @@ hsv2rgb (h,s,v) =
 stringColorizer :: String -> Bool -> X (String, String)
 stringColorizer s active =
     let seed x = toInteger (sum $ map ((*x).fromEnum) s) :: Integer
-        (r,g,b) = hsv2rgb ((seed 83) `mod` 360,
-                           (fromInteger ((seed 191) `mod` 1000))/2500+0.4,
-                           (fromInteger ((seed 121) `mod` 1000))/2500+0.4)
+        (r,g,b) = hsv2rgb (seed 83 `mod` 360,
+                           fromInteger (seed 191 `mod` 1000)/2500+0.4,
+                           fromInteger (seed 121 `mod` 1000)/2500+0.4)
     in if active
          then return ("#faff69", "black")
-         else return ("#" ++ concat (map (twodigitHex.(round :: Double -> Word8).(*256)) [r, g, b] ), "white")
+         else return ("#" ++ concatMap (twodigitHex.(round :: Double -> Word8).(*256)) [r, g, b], "white")
 
 -- | Colorize a window depending on it's className.
 fromClassName :: Window -> Bool -> X (String, String)
 fromClassName w active = runQuery className w >>= flip defaultColorizer active
 
 twodigitHex :: Word8 -> String
-twodigitHex a = printf "%02x" a
+twodigitHex = printf "%02x"
 
 -- | A colorizer that picks a color inside a range,
 -- and depending on the window's class.
@@ -629,15 +638,12 @@ mix (r1, g1, b1) (r2, g2, b2) r = (mix' r1 r2, mix' g1 g2, mix' b1 b2)
 
 -- | Generates a Double from a string, trying to
 -- achieve a random distribution.
--- We create a random seed from the sum of all characters
+-- We create a random seed from the hash of all characters
 -- in the string, and use it to generate a ratio between 0 and 1
 stringToRatio :: String -> Double
 stringToRatio "" = 0
-stringToRatio s = let gen = mkStdGen $ sum $ map fromEnum s
-                      range = (\(a, b) -> b - a) $ genRange gen
-                      randomInt = foldr1 combine $ replicate 20 next
-                      combine f1 f2 g = let (_, g') = f1 g in f2 g'
-                  in fi (fst $ randomInt gen) / fi range
+stringToRatio s = let gen = mkStdGen $ foldl' (\t c -> t * 31 + fromEnum c) 0 s
+                  in fst $ randomR (0, 1) gen
 
 -- | Brings up a 2D grid of elements in the center of the screen, and one can
 -- select an element with cursors keys. The selected element is returned.
@@ -652,18 +658,18 @@ gridselect gsconfig elements =
     liftIO $ mapWindow dpy win
     liftIO $ selectInput dpy win (exposureMask .|. keyPressMask .|. buttonReleaseMask)
     status <- io $ grabKeyboard dpy win True grabModeAsync grabModeAsync currentTime
-    io $ grabPointer dpy win True buttonReleaseMask grabModeAsync grabModeAsync none none currentTime
+    void $ io $ grabPointer dpy win True buttonReleaseMask grabModeAsync grabModeAsync none none currentTime
     font <- initXMF (gs_font gsconfig)
     let screenWidth = toInteger $ rect_width scr
         screenHeight = toInteger $ rect_height scr
-    selectedElement <- if (status == grabSuccess) then do
+    selectedElement <- if status == grabSuccess then do
                             let restriction ss cs = (fromInteger ss/fromInteger (cs gsconfig)-1)/2 :: Double
                                 restrictX = floor $ restriction screenWidth gs_cellwidth
                                 restrictY = floor $ restriction screenHeight gs_cellheight
-                                originPosX = floor $ ((gs_originFractX gsconfig) - (1/2)) * 2 * fromIntegral restrictX
-                                originPosY = floor $ ((gs_originFractY gsconfig) - (1/2)) * 2 * fromIntegral restrictY
+                                originPosX = floor $ (gs_originFractX gsconfig - (1/2)) * 2 * fromIntegral restrictX
+                                originPosY = floor $ (gs_originFractY gsconfig - (1/2)) * 2 * fromIntegral restrictY
                                 coords = diamondRestrict restrictX restrictY originPosX originPosY
-                                s = TwoDState { td_curpos = (head coords),
+                                s = TwoDState { td_curpos = NE.head (notEmpty coords),
                                                 td_availSlots = coords,
                                                 td_elements = elements,
                                                 td_gsconfig = gsconfig,
@@ -674,7 +680,7 @@ gridselect gsconfig elements =
                                                 td_searchString = "",
                                                 td_elementmap = [] }
                             m <- generateElementmap s
-                            evalTwoD (updateAllElements >> (gs_navigate gsconfig))
+                            evalTwoD (updateAllElements >> gs_navigate gsconfig)
                                      (s { td_elementmap = m })
                       else
                           return Nothing
@@ -696,16 +702,13 @@ gridselectWindow gsconf = windowMap >>= gridselect gsconf
 withSelectedWindow :: (Window -> X ()) -> GSConfig Window -> X ()
 withSelectedWindow callback conf = do
     mbWindow <- gridselectWindow conf
-    case mbWindow of
-        Just w -> callback w
-        Nothing -> return ()
+    for_ mbWindow callback
 
 windowMap :: X [(String,Window)]
 windowMap = do
     ws <- gets windowset
-    wins <- mapM keyValuePair (W.allWindows ws)
-    return wins
- where keyValuePair w = flip (,) w <$> decorateName' w
+    mapM keyValuePair (W.allWindows ws)
+ where keyValuePair w = (, w) <$> decorateName' w
 
 decorateName' :: Window -> X String
 decorateName' w = do
@@ -713,7 +716,7 @@ decorateName' w = do
 
 -- | Builds a default gs config from a colorizer function.
 buildDefaultGSConfig :: (a -> Bool -> X (String,String)) -> GSConfig a
-buildDefaultGSConfig col = GSConfig 50 130 10 col "xft:Sans-8" defaultNavigation noRearranger (1/2) (1/2) "white"
+buildDefaultGSConfig col = GSConfig 50 130 10 col "xft:Sans-8" defaultNavigation noRearranger (1/2) (1/2) "white" True
 
 -- | Brings selected window to the current workspace.
 bringSelected :: GSConfig Window -> X ()
@@ -783,7 +786,7 @@ noRearranger _ = return
 -- already present).
 searchStringRearrangerGenerator :: (String -> a) -> Rearranger a
 searchStringRearrangerGenerator f =
-    let r "" xs                       = return $ xs
-        r s  xs | s `elem` map fst xs = return $ xs
+    let r "" xs                       = return xs
+        r s  xs | s `elem` map fst xs = return xs
                 | otherwise           = return $ xs ++ [(s, f s)]
     in r

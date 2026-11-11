@@ -1,8 +1,9 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, MultiParamTypeClasses, PatternGuards, TypeSynonymInstances #-}
+{-# LANGUAGE MultiParamTypeClasses, PatternGuards, TypeSynonymInstances #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.MouseResize
+-- Description :  A layout modifier to resize windows with the mouse.
 -- Copyright   :  (c) 2007 Andrea Rossato
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -36,7 +37,7 @@ import XMonad.Util.XUtils
 -- "XMonad.Layout.SimpleFloat" or "XMonad.Layout.DecorationMadness".
 --
 -- You can use this module with the following in your
--- @~\/.xmonad\/xmonad.hs@:
+-- @xmonad.hs@:
 --
 -- > import XMonad.Actions.MouseResize
 -- > import XMonad.Layout.WindowArranger
@@ -49,14 +50,14 @@ import XMonad.Util.XUtils
 --
 -- > main = xmonad def { layoutHook = myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 mouseResize :: l a -> ModifiedLayout MouseResize l a
 mouseResize = ModifiedLayout (MR [])
 
-data MouseResize a = MR [((a,Rectangle),Maybe a)]
+newtype MouseResize a = MR [((a,Rectangle),Maybe a)]
 instance Show (MouseResize a) where show        _ = ""
 instance Read (MouseResize a) where readsPrec _ s = [(MR [], s)]
 
@@ -68,7 +69,7 @@ instance LayoutModifier MouseResize Window where
         where
           wrs'         = wrs_to_state [] . filter (isInStack s . fst) $ wrs
           initState    = mapM createInputWindow wrs'
-          processState = mapM (deleteInputWin . snd) st >> mapM createInputWindow wrs'
+          processState = mapM_ (deleteInputWin . snd) st >> mapM createInputWindow wrs'
 
           inputRectangle (Rectangle x y wh ht) = Rectangle (x + fi wh - 5) (y + fi ht - 5) 10 10
 

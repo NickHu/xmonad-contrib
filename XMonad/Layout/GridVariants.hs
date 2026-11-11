@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
 
 ----------------------------------------------------------------------
 -- |
 -- Module      : XMonad.Layout.GridVariants
+-- Description : Two grid layouts.
 -- Copyright   : (c) Norbert Zeh
 -- License     : BSD-style (see LICENSE)
 --
@@ -27,7 +28,7 @@ module XMonad.Layout.GridVariants ( -- * Usage
                                   , Orientation(..)
                                   ) where
 
-import Control.Monad
+import XMonad.Prelude
 import XMonad
 import qualified XMonad.StackSet as W
 
@@ -58,7 +59,7 @@ import qualified XMonad.StackSet as W
 -- > ((modm .|. controlMask,  xK_minus), sendMessage $ IncMasterRows (-1))
 
 -- | Grid layout.  The parameter is the desired x:y aspect ratio of windows
-data Grid a = Grid !Rational
+newtype Grid a = Grid Rational
               deriving (Read, Show)
 
 instance LayoutClass Grid a where
@@ -82,7 +83,6 @@ changeGridAspect (Grid aspect) (ChangeGridAspect delta) =
 data ChangeGridGeom
     = SetGridAspect !Rational
     | ChangeGridAspect !Rational
-      deriving Typeable
 
 instance Message ChangeGridGeom
 
@@ -125,7 +125,6 @@ data ChangeMasterGridGeom
     | SetMasterRows     !Int      -- ^Set the number of master rows to absolute value
     | SetMasterCols     !Int      -- ^Set the number of master columns to absolute value
     | SetMasterFraction !Rational -- ^Set the fraction of the screen used by the master grid
-    deriving Typeable
 
 instance Message ChangeMasterGridGeom
 
@@ -133,8 +132,8 @@ arrangeSplitGrid :: Rectangle -> Orientation -> Int -> Int -> Int -> Rational ->
 arrangeSplitGrid rect@(Rectangle rx ry rw rh) o nwins mrows mcols mfrac saspect
     | nwins <= mwins = arrangeMasterGrid rect nwins mcols
     | mwins == 0     = arrangeAspectGrid rect nwins saspect
-    | otherwise      = (arrangeMasterGrid mrect mwins mcols) ++
-                       (arrangeAspectGrid srect swins saspect)
+    | otherwise      = arrangeMasterGrid mrect mwins mcols ++
+                       arrangeAspectGrid srect swins saspect
     where
       mwins            = mrows * mcols
       swins            = nwins - mwins
@@ -179,7 +178,7 @@ arrangeGrid (Rectangle rx ry rw rh) nwins ncols =
       y_slabs       = [splitIntoSlabs (fromIntegral rh) nrows | nrows <- nrows_in_cols]
       rects_in_cols = [[(x, y, w, h) | (y, h) <- lst]
                        | ((x, w), lst) <- zip x_slabs y_slabs]
-      rects         = foldr (++) [] rects_in_cols
+      rects         = concat rects_in_cols
 
 splitIntoSlabs :: Int -> Int -> [(Int, Int)]
 splitIntoSlabs width nslabs = zip (0:xs) widths
@@ -196,7 +195,7 @@ splitEvenly n parts = [ sz-off | (sz,off) <- zip sizes offsets]
       size    = ceiling ( (fromIntegral n / fromIntegral parts) :: Double )
       extra   = size*parts - n
       sizes   = [i*size | i <- [1..parts]]
-      offsets = (take (fromIntegral extra) [1..]) ++ [extra,extra..]
+      offsets = take (fromIntegral extra) [1..] ++ [extra,extra..]
 
 resizeMaster :: SplitGrid a -> Resize -> SplitGrid a
 resizeMaster (SplitGrid o mrows mcols mfrac saspect delta) Shrink =
@@ -244,8 +243,8 @@ instance LayoutClass TallGrid a where
           rects = arrangeSplitGrid rect L nwins mrows mcols mfrac saspect
 
     pureMessage layout msg =
-        msum [ fmap ((tallGridAdapter resizeMaster) layout) (fromMessage msg)
-             , fmap ((tallGridAdapter changeMasterGrid) layout) (fromMessage msg) ]
+        msum [ fmap (tallGridAdapter resizeMaster layout) (fromMessage msg)
+             , fmap (tallGridAdapter changeMasterGrid layout) (fromMessage msg) ]
 
     description _ = "TallGrid"
 

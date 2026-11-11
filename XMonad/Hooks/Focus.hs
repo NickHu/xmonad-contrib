@@ -1,12 +1,17 @@
-{-# LANGUAGE FlexibleContexts       #-}
-{-# LANGUAGE MultiParamTypeClasses  #-}
-{-# LANGUAGE DeriveDataTypeable     #-}
-{-# OPTIONS_HADDOCK show-extensions #-}
+{-# LANGUAGE DerivingVia                #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# OPTIONS_HADDOCK show-extensions     #-}
 
 -- |
 -- Module:      XMonad.Hooks.Focus
+-- Description: Extends ManageHook EDSL to work on focused windows and current workspace.
 -- Copyright:   sgf-dma, 2016
 -- Maintainer:  sgf.dma@gmail.com
+--
+-- Extends "XMonad.ManageHook" EDSL to work on focused windows and current
+-- workspace.
 --
 
 module XMonad.Hooks.Focus
@@ -62,18 +67,14 @@ module XMonad.Hooks.Focus
     )
   where
 
-import Data.Maybe
-import Data.Monoid
-import qualified Data.Semigroup as S
-import Control.Monad
+import Control.Arrow ((&&&))
 import Control.Monad.Reader
-import Control.Arrow hiding ((<+>))
 
 import XMonad
+import XMonad.Prelude
 import qualified XMonad.StackSet as W
 import qualified XMonad.Util.ExtensibleState as XS
 import XMonad.Hooks.ManageHelpers (currentWs)
-import XMonad.Hooks.EwmhDesktops (activated)
 
 
 -- $main
@@ -99,8 +100,8 @@ import XMonad.Hooks.EwmhDesktops (activated)
 --
 -- I may use one of predefined configurations.
 --
--- 1. Default window activation behavior is to switch to workspace with
---    activated window and switch focus to it:
+-- 1. The default window activation behavior (switch to workspace with
+--    activated window and switch focus to it) expressed using this module:
 --
 --      > import XMonad
 --      >
@@ -109,44 +110,42 @@ import XMonad.Hooks.EwmhDesktops (activated)
 --      >
 --      > main :: IO ()
 --      > main = do
---      >         let mh :: ManageHook
---      >             mh = activateSwitchWs
---      >             xcf = ewmh $ def
---      >                     { modMask = mod4Mask
---      >                     , logHook = activateLogHook mh <+> logHook def
---      >                     }
+--      >         let ah :: ManageHook
+--      >             ah = activateSwitchWs
+--      >             xcf = setEwmhActivateHook ah
+--      >                 . ewmh $ def{ modMask = mod4Mask }
 --      >         xmonad xcf
 --
 -- 2. Or i may move activated window to current workspace and switch focus to
 --    it:
 --
---      >         let mh :: ManageHook
---      >             mh = activateOnCurrentWs
+--      >         let ah :: ManageHook
+--      >             ah = activateOnCurrentWs
 --
 -- 3. Or move activated window to current workspace, but keep focus unchanged:
 --
---      >         let mh :: ManageHook
---      >             mh = activateOnCurrentKeepFocus
+--      >         let ah :: ManageHook
+--      >             ah = activateOnCurrentKeepFocus
 --
 -- 4. I may use regular 'ManageHook' combinators for filtering, which windows
 --    may activate. E.g. activate all windows, except firefox:
 --
---      >         let mh :: ManageHook
---      >             mh  = not <$> (className =? "Firefox" <||> className =? "Firefox-esr" <||> className =? "Iceweasel")
+--      >         let ah :: ManageHook
+--      >             ah  = not <$> (className =? "Firefox" <||> className =? "Firefox-esr" <||> className =? "Iceweasel")
 --      >                     --> activateSwitchWs
 --
 -- 5. Or even use 'FocusHook' combinators. E.g. activate all windows, unless
 --    xterm is focused on /current/ workspace:
 --
---      >         let mh :: ManageHook
---      >             mh  = manageFocus (not <$> focusedCur (className =? "XTerm")
+--      >         let ah :: ManageHook
+--      >             ah  = manageFocus (not <$> focusedCur (className =? "XTerm")
 --      >                     --> liftQuery activateSwitchWs)
 --
 --      or activate all windows, unless focused window on the workspace,
 --      /where activated window is/, is not a xterm:
 --
---      >         let mh :: ManageHook
---      >             mh  = manageFocus (not <$> focused (className =? "XTerm")
+--      >         let ah :: ManageHook
+--      >             ah  = manageFocus (not <$> focused (className =? "XTerm")
 --      >                     --> liftQuery activateSwitchWs)
 --
 -- == Defining FocusHook.
@@ -163,7 +162,7 @@ import XMonad.Hooks.EwmhDesktops (activated)
 -- >                            --> keepFocus
 -- >            -- Default behavior for activated windows: switch
 -- >            -- workspace and focus.
--- >            , return True   --> switchWorkspace <+> switchFocus
+-- >            , return True   --> switchWorkspace <> switchFocus
 -- >            ]
 -- >
 -- >    newFocusHook :: FocusHook
@@ -201,11 +200,11 @@ import XMonad.Hooks.EwmhDesktops (activated)
 -- >    main = do
 -- >            let newFh :: ManageHook
 -- >                newFh = manageFocus newFocusHook
--- >                acFh :: X ()
--- >                acFh = activateLogHook (manageFocus activateFocusHook)
--- >                xcf = ewmh $ def
--- >                             { manageHook   = newFh <+> manageHook def
--- >                             , logHook      = acFh  <+> logHook def
+-- >                acFh :: ManageHook
+-- >                acFh = manageFocus activateFocusHook
+-- >                xcf = setEwmhActivateHook acFh
+-- >                    . ewmh $ def
+-- >                             { manageHook   = newFh <> manageHook def
 -- >                             , modMask      = mod4Mask
 -- >                             }
 -- >                        `additionalKeys` [((mod4Mask, xK_v), toggleLock)]
@@ -215,32 +214,25 @@ import XMonad.Hooks.EwmhDesktops (activated)
 --
 --  - /mod4Mask+v/ key toggles focus lock (when enabled, neither focus nor
 --  workspace won't be switched).
---  - I need 'XMonad.Hooks.EwmhDesktops' module for enabling window
+--  - I need "XMonad.Hooks.EwmhDesktops" module for enabling window
 --  activation.
 --  - 'FocusHook' in 'manageHook' will be called /only/ for new windows.
---  - 'FocusHook' in 'logHook' will be called /only/ for activated windows.
+--  - 'FocusHook' in 'setEwmhActivateHook' will be called /only/ for activated windows.
 --
 --  Alternatively, i may construct a single 'FocusHook' for both new and
---  activated windows and then just add it to both 'manageHook' and 'logHook':
+--  activated windows and then just add it to both 'manageHook' and 'setEwmhActivateHook':
 --
--- >            let fh :: ManageHook
--- >                fh = manageFocus $ (composeOne
--- >                        [ liftQuery activated -?> activateFocusHook
--- >                        , Just <$> newFocusHook
--- >                        ])
--- >                xcf = ewmh $ def
--- >                             { manageHook   = fh <+> manageHook def
--- >                             , logHook      = activateLogHook fh <+> logHook def
+-- >            let fh :: Bool -> ManageHook
+-- >                fh activated = manageFocus $ composeOne
+-- >                        [ pure activated -?> activateFocusHook
+-- >                        , pure True      -?> newFocusHook
+-- >                        ]
+-- >                xcf = setEwmhActivateHook (fh True)
+-- >                    . ewmh $ def
+-- >                             { manageHook   = fh False <> manageHook def
 -- >                             , modMask      = mod4Mask
 -- >                             }
 -- >                        `additionalKeys` [((mod4Mask, xK_v), toggleLock)]
---
--- Note:
---  - Predicate 'activated' will be 'True' for activated window.
---  - The order, when constructing final 'FocusHook': 'FocusHook' without
---  'activated' predicate will match to activated windows too, thus i should
---  place it after one with 'activated' (so the latter will have a chance to
---  handle activated window first).
 --
 -- And more technical notes:
 --
@@ -260,18 +252,13 @@ import XMonad.Hooks.EwmhDesktops (activated)
 --  This can be worked around by splitting 'FocusHook' into several different
 --  values and evaluating each one separately, like:
 --
---      > (FH2 -- manageFocus --> MH2) <+> (FH1 -- manageFocus --> MH1) <+> ..
+--      > (FH2 -- manageFocus --> MH2) <> (FH1 -- manageFocus --> MH1) <> ..
 --
 --      E.g.
 --
---      > manageFocus FH2 <+> manageFocus FH1 <+> ..
+--      > manageFocus FH2 <> manageFocus FH1 <> ..
 --
 --      now @FH2@ will see window shift made by @FH1@.
---
---      Also, note, that if several 'activateLogHook'-s are sequenced, only
---      /first/ one (leftmost) will run. Thus, to make above working,
---      'mappend' all 'ManageHook'-s first, and then run by /single/
---      'activateLogHook' (see next example).
 --
 -- Another interesting example is moving all activated windows to current
 -- workspace by default, and applying 'FocusHook' after:
@@ -285,14 +272,14 @@ import XMonad.Hooks.EwmhDesktops (activated)
 -- >
 -- >    main :: IO ()
 -- >    main = do
--- >            let fh :: ManageHook
--- >                fh = manageFocus $ (composeOne
--- >                        [ liftQuery activated -?> (newOnCur --> keepFocus)
--- >                        , Just <$> newFocusHook
--- >                        ])
--- >                xcf = ewmh $ def
--- >                             { manageHook = fh <+> manageHook def
--- >                             , logHook    = activateLogHook (fh <+> activateOnCurrentWs) <+> logHook def
+-- >            let fh :: Bool -> ManageHook
+-- >                fh activated = manageFocus $ composeOne
+-- >                        [ pure activated -?> (newOnCur --> keepFocus)
+-- >                        , pure True      -?> newFocusHook
+-- >                        ]
+-- >                xcf = setEwmhActivateHook (fh True <> activateOnCurrentWs)
+-- >                    . ewmh $ def
+-- >                             { manageHook = fh False <> manageHook def
 -- >                             , modMask    = mod4Mask
 -- >                             }
 -- >                        `additionalKeys` [((mod4Mask, xK_v), toggleLock)]
@@ -323,11 +310,10 @@ import XMonad.Hooks.EwmhDesktops (activated)
 --
 --  - i keep focus, when activated window appears on current workspace, in
 --  this example.
---  - when @liftQuery activated -?> (newOnCur --> keepFocus)@ runs, activated
+--  - when @pure activated -?> (newOnCur --> keepFocus)@ runs, activated
 --  window will be /already/ on current workspace, thus, if i do not want to
 --  move some activated windows, i should filter them out before applying
 --  @activateOnCurrentWs@ 'FocusHook'.
---  - i 'mappend' all 'ManageHook'-s and run 'activateLogHook' only once.
 
 
 -- FocusQuery.
@@ -352,7 +338,7 @@ instance Default Focus where
                         }
 
 newtype FocusLock   = FocusLock {getFocusLock :: Bool}
-  deriving (Show, Typeable)
+  deriving (Show)
 instance ExtensionClass FocusLock where
     initialValue    = FocusLock False
 
@@ -371,30 +357,13 @@ focusLockOff        = XS.modify (const (FocusLock False))
 -- | Monad on top of 'Query' providing additional information about new
 -- window.
 newtype FocusQuery a = FocusQuery (ReaderT Focus Query a)
-instance Functor FocusQuery where
-    fmap f (FocusQuery x) = FocusQuery (fmap f x)
-instance Applicative FocusQuery where
-    pure x                              = FocusQuery (pure x)
-    (FocusQuery f) <*> (FocusQuery mx)  = FocusQuery (f <*> mx)
-instance Monad FocusQuery where
-    return x                = FocusQuery (return x)
-    (FocusQuery mx) >>= f   = FocusQuery $ mx >>= \x ->
-                              let FocusQuery y = f x in y
-instance MonadReader Focus FocusQuery where
-    ask                     = FocusQuery ask
-    local f (FocusQuery mx) = FocusQuery (local f mx)
-instance MonadIO FocusQuery where
-    liftIO mx       = FocusQuery (liftIO mx)
-instance S.Semigroup a => S.Semigroup (FocusQuery a) where
-    (<>)            = liftM2 (S.<>)
-instance Monoid a => Monoid (FocusQuery a) where
-    mempty          = return mempty
-    mappend         = (<>)
+  deriving newtype (Functor, Applicative, Monad, MonadReader Focus, MonadIO)
+  deriving (Semigroup, Monoid) via Ap FocusQuery a
 
 runFocusQuery :: FocusQuery a -> Focus -> Query a
 runFocusQuery (FocusQuery m)    = runReaderT m
 
-type FocusHook      = FocusQuery (Endo WindowSet)
+type FocusHook = FocusQuery (Endo WindowSet)
 
 
 -- Lifting into 'FocusQuery'.
@@ -444,7 +413,7 @@ focusedCur' m       = asks currentWorkspace >>= \i -> focusedOn' i m
 
 -- | Does new window appear at particular workspace?
 newOn :: WorkspaceId -> FocusQuery Bool
-newOn i             = (i ==) <$> asks newWorkspace
+newOn i             = asks ((i ==) . newWorkspace)
 -- | Does new window appear at current workspace?
 newOnCur :: FocusQuery Bool
 newOnCur            = asks currentWorkspace >>= newOn
@@ -462,15 +431,15 @@ unlessFocusLock m   = do
 -- 'switchWorkspace' overwrite each other (the letftmost will determine what
 -- happened):
 --
--- prop> keepFocus       <+> switchFocus     = keepFocus
--- prop> switchFocus     <+> keepFocus       = switchFocus
--- prop> keepWorkspace   <+> switchWorkspace = keepWorkspace
--- prop> switchWorkspace <+> keepWorkspace   = switchWorkspace
+-- prop> keepFocus       <> switchFocus     = keepFocus
+-- prop> switchFocus     <> keepFocus       = switchFocus
+-- prop> keepWorkspace   <> switchWorkspace = keepWorkspace
+-- prop> switchWorkspace <> keepWorkspace   = switchWorkspace
 --
 -- and operations from different pairs are commutative:
 --
--- prop> keepFocus   <+> switchWorkspace = switchWorkspace <+> keepFocus
--- prop> switchFocus <+> switchWorkspace = switchWorkspace <+> switchFocus
+-- prop> keepFocus   <> switchWorkspace = switchWorkspace <> keepFocus
+-- prop> switchFocus <> switchWorkspace = switchWorkspace <> switchFocus
 --
 -- etc.
 
@@ -556,25 +525,22 @@ when' b mx
 -- $examples
 
 -- | Default EWMH window activation behavior: switch to workspace with
--- activated window and switch focus to it.
+-- activated window and switch focus to it. Not to be used in a 'manageHook'.
 activateSwitchWs :: ManageHook
-activateSwitchWs    = manageFocus (liftQuery activated -->
-                        switchWorkspace <+> switchFocus)
+activateSwitchWs    = manageFocus (switchWorkspace <> switchFocus)
 
--- | Move activated window to current workspace.
+-- | Move activated window to current workspace. Not to be used in a 'manageHook'.
 activateOnCurrent' :: ManageHook
-activateOnCurrent'  = activated --> currentWs >>= unlessFocusLock . doShift
+activateOnCurrent'  = currentWs >>= unlessFocusLock . doShift
 
 -- | Move activated window to current workspace and switch focus to it. Note,
 -- that i need to explicitly call 'switchFocus' here, because otherwise, when
 -- activated window is /already/ on current workspace, focus won't be
--- switched.
+-- switched. Not to be used in a 'manageHook'.
 activateOnCurrentWs :: ManageHook
-activateOnCurrentWs = manageFocus (liftQuery activated <&&> newOnCur --> switchFocus)
-                        <+> activateOnCurrent'
+activateOnCurrentWs = manageFocus (newOnCur --> switchFocus) <> activateOnCurrent'
 
 -- | Move activated window to current workspace, but keep focus unchanged.
+-- Not to be used in a 'manageHook'.
 activateOnCurrentKeepFocus :: ManageHook
-activateOnCurrentKeepFocus  = manageFocus (liftQuery activated <&&> newOnCur --> keepFocus)
-                        <+> activateOnCurrent'
-
+activateOnCurrentKeepFocus  = manageFocus (newOnCur --> keepFocus) <> activateOnCurrent'

@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP #-}
 {- |
 Module      :  XMonad.Util.XSelection
+Description :  A module for accessing and manipulating the primary selection.
 Copyright   :  (C) 2007 Andrea Rossato, Matthew Sackman
 License     :  BSD3
 
@@ -17,13 +18,14 @@ A module for accessing and manipulating X Window's mouse selection (the buffer u
 module XMonad.Util.XSelection (  -- * Usage
                                  -- $usage
                                  getSelection,
+                                 getClipboard,
+                                 getSecondarySelection,
                                  promptSelection,
                                  safePromptSelection,
                                  transformPromptSelection,
                                  transformSafePromptSelection) where
 
 import Control.Exception as E (catch,SomeException(..))
-import Data.Maybe (fromMaybe)
 import XMonad
 import XMonad.Util.Run (safeSpawn, unsafeSpawn)
 
@@ -31,31 +33,47 @@ import Codec.Binary.UTF8.String (decode)
 
 {- $usage
    Add @import XMonad.Util.XSelection@ to the top of Config.hs
-   Then make use of getSelection or promptSelection as needed; if
-   one wanted to run Firefox with the selection as an argument (perhaps
+
+   If one wanted to run Firefox with the selection as an argument (perhaps
    the selection string is an URL you just highlighted), then one could add
    to the xmonad.hs a line like thus:
 
    > , ((modm .|. shiftMask, xK_b), promptSelection "firefox")
 
+   To add a 'paste' keybinding in your prompts, use:
+
+   > prompt_extra_bindings = [
+   >   ((mod1Mask, xK_v), getClipboard >>= insertString) -- Alt+v to paste
+   >   ]
+   > 
+   > prompt_conf = def {
+   >   promptKeymap =
+   >     foldl (\m (k, a) -> M.insert k a m) defaultXPKeymap prompt_extra_bindings,
+   >   -- other prompt config
+   > }
+
+   Next use it to construct a prompt, for example in your bindings:
+
+   > ("M-p", shellPrompt prompt_conf),
+
    Future improvements for XSelection:
 
    * More elaborate functionality: Emacs' registers are nice; if you
-      don't know what they are, see <http://www.gnu.org/software/emacs/manual/html_node/emacs/Registers.html#Registers> -}
+      don't know what they are, see <http://www.gnu.org/software/emacs/manual/html_node/emacs/Registers.html#Registers>
 
--- | Returns a String corresponding to the current mouse selection in X;
---   if there is none, an empty string is returned.
---
--- WARNING: this function is fundamentally implemented incorrectly and may, among other possible failure modes,
--- deadlock or crash. For details, see <http://code.google.com/p/xmonad/issues/detail?id=573>.
--- (These errors are generally very rare in practice, but still exist.)
-getSelection :: MonadIO m => m String
-getSelection = io $ do
+   WARNING: these functions are fundamentally implemented incorrectly and may,
+   among other possible failure modes, deadlock or crash. For details, see
+   <http://code.google.com/p/xmonad/issues/detail?id=573>.
+   (These errors are generally very rare in practice, but still exist.) -}
+
+-- Query the content of a selection in X
+getSelectionNamed :: String -> IO String
+getSelectionNamed sel_name = do
   dpy <- openDisplay ""
   let dflt = defaultScreen dpy
   rootw  <- rootWindow dpy dflt
   win <- createSimpleWindow dpy rootw 0 0 1 1 0 0 0
-  p <- internAtom dpy "PRIMARY" True
+  p <- internAtom dpy sel_name True
   ty <- E.catch
                (E.catch
                      (internAtom dpy "UTF8_STRING" False)
@@ -68,10 +86,26 @@ getSelection = io $ do
     ev <- getEvent e
     result <- if ev_event_type ev == selectionNotify
                  then do res <- getWindowProperty8 dpy clp win
-                         return $ decode . map fromIntegral . fromMaybe [] $ res
-                 else destroyWindow dpy win >> return ""
+                         return $ decode . maybe [] (map fromIntegral) $ res
+                 else return ""
+    destroyWindow dpy win
     closeDisplay dpy
     return result
+
+-- | Returns a String corresponding to the current mouse selection in X;
+--   if there is none, an empty string is returned.
+getSelection :: MonadIO m => m String
+getSelection = io $ getSelectionNamed "PRIMARY"
+
+-- | Returns a String corresponding to the current clipboard in X;
+--   if there is none, an empty string is returned.
+getClipboard :: MonadIO m => m String
+getClipboard = io $ getSelectionNamed "CLIPBOARD"
+
+-- | Returns a String corresponding to the secondary selection in X;
+--   if there is none, an empty string is returned.
+getSecondarySelection :: MonadIO m => m String
+getSecondarySelection = io $ getSelectionNamed "SECONDARY"
 
 {- | A wrapper around 'getSelection'. Makes it convenient to run a program with the current selection as an argument.
   This is convenient for handling URLs, in particular. For example, in your Config.hs you could bind a key to

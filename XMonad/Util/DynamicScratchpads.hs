@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.DynamicScratchpads
+-- Description :  Dynamically declare any window as a scratchpad.
 -- Copyright   :  (c) Robin Oberschweiber <mephory@mephory.com>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -12,7 +13,7 @@
 --
 -----------------------------------------------------------------------------
 
-module XMonad.Util.DynamicScratchpads (
+module XMonad.Util.DynamicScratchpads {-# DEPRECATED "Use the dynamic scratchpad facility of XMonad.Util.NamedScratchpad instead." #-} (
   -- * Usage
   -- $usage
   makeDynamicSP,
@@ -35,7 +36,7 @@ import qualified XMonad.Util.ExtensibleState as XS
 -- Like with XMonad.Util.NamedScratchpad, you have to have a workspace called
 -- NSP, where hidden scratchpads will be moved to.
 --
--- You can declare dynamic scrachpads in your xmonad.hs like so:
+-- You can declare dynamic scratchpads in your xmonad.hs like so:
 --
 -- import XMonad.Util.DynamicScratchpads
 --
@@ -45,11 +46,11 @@ import qualified XMonad.Util.ExtensibleState as XS
 -- , ((modm              , xK_b), spawnDynamicSP "dyn2")
 
 -- | Stores dynamic scratchpads as a map of name to window
-data SPStorage = SPStorage (M.Map String Window)
-    deriving (Typeable,Read,Show)
+newtype SPStorage = SPStorage (M.Map String Window)
+    deriving (Read,Show)
 
 instance ExtensionClass SPStorage where
-    initialValue = SPStorage $ M.fromList []
+    initialValue = SPStorage M.empty
     extensionType = PersistentExtension
 
 -- | Makes a window a dynamic scratchpad with the given name, or stop a window
@@ -63,16 +64,16 @@ makeDynamicSP s w = do
         Nothing -> addDynamicSP s w
         Just ow  -> if w == ow
                     then removeDynamicSP s
-                    else (showWindow ow >> addDynamicSP s w)
+                    else showWindow ow >> addDynamicSP s w
+{-# DEPRECATED makeDynamicSP "Use XMonad.Util.NamedScratchpad.toggleDynamicNSP instead" #-}
 
 -- | Spawn the specified dynamic scratchpad
 spawnDynamicSP :: String -- ^ Scratchpad name
                -> X ()
 spawnDynamicSP s = do
     (SPStorage m) <- XS.get
-    case M.lookup s m of
-        Nothing -> mempty
-        Just w  -> spawnDynamicSP' w
+    maybe mempty spawnDynamicSP' (M.lookup s m)
+{-# DEPRECATED spawnDynamicSP "Use XMonad.Util.NamedScratchpad.dynamicNSPAction instead" #-}
 
 spawnDynamicSP' :: Window -> X ()
 spawnDynamicSP' w = withWindowSet $ \s -> do
@@ -87,7 +88,7 @@ addDynamicSP s w = XS.modify $ alterSPStorage (\_ -> Just w) s
 
 -- | Make a window stop being a dynamic scratchpad
 removeDynamicSP :: String -> X ()
-removeDynamicSP s = XS.modify $ alterSPStorage (\_ -> Nothing) s
+removeDynamicSP s = XS.modify $ alterSPStorage (const Nothing) s
 
 -- | Moves window to the scratchpad workspace, effectively hiding it
 hideWindow :: Window -> X ()
@@ -96,7 +97,7 @@ hideWindow = windows . W.shiftWin "NSP"
 -- | Move window to current workspace and focus it
 showWindow :: Window -> X ()
 showWindow w = windows $ \ws ->
-    (W.focusWindow w) . (W.shiftWin (W.currentTag ws) w) $ ws
+    W.focusWindow w . W.shiftWin (W.currentTag ws) w $ ws
 
 alterSPStorage :: (Maybe Window -> Maybe Window) -> String -> SPStorage -> SPStorage
 alterSPStorage f k (SPStorage m) = SPStorage $ M.alter f k m

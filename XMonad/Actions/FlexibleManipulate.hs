@@ -1,8 +1,9 @@
-{-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.FlexibleManipulate
+-- Description :  Move and resize floating windows without warping the mouse.
 -- Copyright   :  (c) Michael Sloan
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -23,11 +24,12 @@ module XMonad.Actions.FlexibleManipulate (
 ) where
 
 import XMonad
+import XMonad.Prelude ((<&>), fi)
 import qualified Prelude as P
-import Prelude (($), (.), fst, snd, uncurry, const, id, Ord(..), Monad(..), fromIntegral, Double, Integer, map, round, otherwise)
+import Prelude (Double, Integer, Ord (..), const, fromIntegral, fst, id, otherwise, round, snd, uncurry, ($))
 
 -- $usage
--- First, add this import to your @~\/.xmonad\/xmonad.hs@:
+-- First, add this import to your @xmonad.hs@:
 --
 -- > import qualified XMonad.Actions.FlexibleManipulate as Flex
 --
@@ -78,10 +80,12 @@ position = const 0.5
 -- | Given an interpolation function, implement an appropriate window
 --   manipulation action.
 mouseWindow :: (Double -> Double) -> Window -> X ()
-mouseWindow f w = whenX (isClient w) $ withDisplay $ \d -> do
-    [wpos, wsize] <- io $ getWindowAttributes d w >>= return . winAttrs
+mouseWindow f w = whenX (isClient w) $ withDisplay $ \d ->
+  withWindowAttributes d w $ \wa -> do
+    let wpos  = (fi (wa_x wa), fi (wa_y wa))
+        wsize = (fi (wa_width wa), fi (wa_height wa))
     sh <- io $ getWMNormalHints d w
-    pointer <- io $ queryPointer d w >>= return . pointerPos
+    pointer <- io $ queryPointer d w <&> pointerPos
 
     let uv = (pointer - wpos) / wsize
         fc = mapP f uv
@@ -102,17 +106,9 @@ mouseWindow f w = whenX (isClient w) $ withDisplay $ \d -> do
 
   where
     pointerPos (_,_,_,px,py,_,_,_) = (fromIntegral px,fromIntegral py) :: Pnt
-    winAttrs :: WindowAttributes -> [Pnt]
-    winAttrs x = pairUp $ map (fromIntegral . ($ x)) [wa_x, wa_y, wa_width, wa_height]
-
 
 -- I'd rather I didn't have to do this, but I hate writing component 2d math
 type Pnt = (Double, Double)
-
-pairUp :: [a] -> [(a,a)]
-pairUp [] = []
-pairUp [_] = []
-pairUp (x:y:xs) = (x, y) : (pairUp xs)
 
 mapP :: (a -> b) -> (a, a) -> (b, b)
 mapP f (x, y) = (f x, f y)
@@ -131,4 +127,3 @@ infixl 7  *, /
 (*) = zipP (P.*)
 (/) :: (P.Fractional a) => (a,a) -> (a,a) -> (a,a)
 (/) = zipP (P./)
-

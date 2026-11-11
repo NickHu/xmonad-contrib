@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Prompt.DirExec
+-- Description :  A directory file executables prompt for XMonad.
 -- Copyright   :  (C) 2008 Juraj Hercek
 -- License     :  BSD3
 --
@@ -26,17 +27,15 @@ module XMonad.Prompt.DirExec
 
 import Control.Exception as E
 import System.Directory
-import Control.Applicative (liftA2)
-import Control.Monad
-import Data.List
 import XMonad
+import XMonad.Prelude
 import XMonad.Prompt
 
 econst :: Monad m => a -> IOException -> m a
 econst = const . return
 
 -- $usage
--- 1. In your @~\/.xmonad\/xmonad.hs@:
+-- 1. In your @xmonad.hs@:
 --
 -- > import XMonad.Prompt.DirExec
 --
@@ -64,9 +63,9 @@ econst = const . return
 -- terminal
 --
 -- For detailed instruction on editing the key binding see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
-data DirExec = DirExec String
+newtype DirExec = DirExec String
 
 instance XPrompt DirExec where
     showXPrompt (DirExec name) = name

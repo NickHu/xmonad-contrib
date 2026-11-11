@@ -1,8 +1,8 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-
+{-# language DeriveGeneric, DeriveAnyClass #-}
 ----------------------------------------------------------------------
 -- |
 -- Module      : XMonad.Actions.GroupNavigation
+-- Description : Cycle through groups of windows across workspaces.
 -- Copyright   : (c) nzeh@cs.dal.ca
 -- License     : BSD3-style (see LICENSE)
 --
@@ -33,23 +33,27 @@ module XMonad.Actions.GroupNavigation ( -- * Usage
                                       , isOnAnyVisibleWS
                                       ) where
 
-import Control.Monad.Reader
-import Control.Monad.State
-import Data.Foldable as Fold
-import Data.Map as Map
-import Data.Sequence as Seq
-import Data.Set as Set
+import Control.Monad.Reader (ask, asks)
+import Control.Monad.State (gets)
+import Control.DeepSeq
+import Data.Map ((!))
+import qualified Data.Map as Map
+import Data.Sequence (Seq, ViewL (EmptyL, (:<)), viewl, (<|), (><), (|>))
+import qualified Data.Sequence as Seq
+import qualified Data.Set as Set
 import Graphics.X11.Types
-import Prelude hiding (concatMap, drop, elem, filter, null, reverse)
+import GHC.Generics
+import Prelude hiding (drop, elem, filter, null, reverse)
 import XMonad.Core
 import XMonad.ManageHook
 import XMonad.Operations (windows, withFocused)
+import XMonad.Prelude (elem, foldl', (>=>))
 import qualified XMonad.StackSet as SS
 import qualified XMonad.Util.ExtensibleState as XS
 
 {- $usage
 
-Import the module into your @~\/.xmonad\/xmonad.hs@:
+Import the module into your @xmonad.hs@:
 
 > import XMonad.Actions.GroupNavigation
 
@@ -125,14 +129,14 @@ focusNextMatchOrDo qry act = findM (runQuery qry)
                              >=> maybe act (windows . SS.focusWindow)
 
 -- Returns the list of windows ordered by workspace as specified in
--- ~/.xmonad/xmonad.hs
+-- @xmonad.hs@.
 orderedWindowList :: Direction -> X (Seq Window)
 orderedWindowList History = fmap (\(HistoryDB w ws) -> maybe ws (ws |>) w) XS.get
 orderedWindowList dir     = withWindowSet $ \ss -> do
   wsids <- asks (Seq.fromList . workspaces . config)
   let wspcs = orderedWorkspaceList ss wsids
       wins  = dirfun dir
-              $ Fold.foldl' (><) Seq.empty
+              $ foldl' (><) Seq.empty
               $ fmap (Seq.fromList . SS.integrate' . SS.stack) wspcs
       cur   = SS.peek ss
   return $ maybe wins (rotfun wins) cur
@@ -141,12 +145,12 @@ orderedWindowList dir     = withWindowSet $ \ss -> do
     dirfun _        = id
     rotfun wins x   = rotate $ rotateTo (== x) wins
 
--- Returns the ordered workspace list as specified in ~/.xmonad/xmonad.hs
+-- Returns the ordered workspace list as specified in @xmonad.hs@.
 orderedWorkspaceList :: WindowSet -> Seq String -> Seq WindowSpace
 orderedWorkspaceList ss wsids = rotateTo isCurWS wspcs'
     where
       wspcs      = SS.workspaces ss
-      wspcsMap   = Fold.foldl' (\m ws -> Map.insert (SS.tag ws) ws m) Map.empty wspcs
+      wspcsMap   = foldl' (\m ws -> Map.insert (SS.tag ws) ws m) Map.empty wspcs
       wspcs'     = fmap (wspcsMap !) wsids
       isCurWS ws = SS.tag ws == SS.tag (SS.workspace $ SS.current ss)
 
@@ -155,7 +159,7 @@ orderedWorkspaceList ss wsids = rotateTo isCurWS wspcs'
 -- The state extension that holds the history information
 data HistoryDB = HistoryDB (Maybe Window) -- currently focused window
                            (Seq Window)   -- previously focused windows
-               deriving (Read, Show, Typeable)
+               deriving (Read, Show, Generic, NFData)
 
 instance ExtensionClass HistoryDB where
 
@@ -165,33 +169,18 @@ instance ExtensionClass HistoryDB where
 -- | Action that needs to be executed as a logHook to maintain the
 -- focus history of all windows as the WindowSet changes.
 historyHook :: X ()
-historyHook = XS.get >>= updateHistory >>= XS.put
+historyHook = (XS.put $!) . force =<< updateHistory =<< XS.get
 
 -- Updates the history in response to a WindowSet change
 updateHistory :: HistoryDB -> X HistoryDB
-updateHistory (HistoryDB oldcur oldhist) = withWindowSet $ \ss -> do
+updateHistory (HistoryDB oldcur oldhist) = withWindowSet $ \ss ->
   let newcur   = SS.peek ss
       wins     = Set.fromList $ SS.allWindows ss
-      newhist  = flt (`Set.member` wins) (ins oldcur oldhist)
-  return $ HistoryDB newcur (del newcur newhist)
+      newhist  = Seq.filter (`Set.member` wins) (ins oldcur oldhist)
+  in pure $ HistoryDB newcur (del newcur newhist)
   where
     ins x xs = maybe xs (<| xs) x
-    del x xs = maybe xs (\x' -> flt (/= x') xs) x
-
---- Two replacements for Seq.filter and Seq.breakl available only in
---- containers-0.3.0.0, which only ships with ghc 6.12.  Once we
---- decide to no longer support ghc < 6.12, these should be replaced
---- with Seq.filter and Seq.breakl.
-
-flt :: (a -> Bool) -> Seq a -> Seq a
-flt p = Fold.foldl (\xs x -> if p x then xs |> x else xs) Seq.empty
-
-brkl :: (a -> Bool) -> Seq a -> (Seq a, Seq a)
-brkl p xs = flip Seq.splitAt xs
-            $ snd
-            $ Fold.foldr (\x (i, j) -> if p x then (i-1, i-1) else (i-1, j)) (l, l) xs
-  where
-    l = Seq.length xs
+    del x xs = maybe xs (\x' -> Seq.filter (/= x') xs) x
 
 --- Some sequence helpers --------------------------------------------
 
@@ -205,7 +194,7 @@ rotate xs = rotate' (viewl xs)
 -- Rotates the sequence until an element matching the given condition
 -- is at the beginning of the sequence.
 rotateTo :: (a -> Bool) -> Seq a -> Seq a
-rotateTo cond xs = let (lxs, rxs) = brkl cond xs in rxs >< lxs
+rotateTo cond xs = let (lxs, rxs) = Seq.breakl cond xs in rxs >< lxs
 
 --- A monadic find ---------------------------------------------------
 
@@ -235,8 +224,7 @@ isOnAnyVisibleWS :: Query Bool
 isOnAnyVisibleWS = do
   w <- ask
   ws <- liftX $ gets windowset
-  let allVisible = concat $ maybe [] SS.integrate . SS.stack . SS.workspace <$> SS.current ws:SS.visible ws
+  let allVisible = concatMap (maybe [] SS.integrate . SS.stack . SS.workspace) (SS.current ws:SS.visible ws)
       visibleWs = w `elem` allVisible
-      unfocused = maybe True (w /=) $ SS.peek ws
+      unfocused = Just w /= SS.peek ws
   return $ visibleWs && unfocused
-

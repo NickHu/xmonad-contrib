@@ -1,8 +1,7 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-
 --------------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.DynamicProjects
+-- Description :  Treat workspaces as individual project areas.
 -- Copyright   :  (c) Peter J. Jones
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -43,14 +42,10 @@ module XMonad.Actions.DynamicProjects
        ) where
 
 --------------------------------------------------------------------------------
-import Control.Applicative ((<|>))
-import Control.Monad (when, unless)
-import Data.Char (isSpace)
-import Data.List (sort, union, stripPrefix)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe, isNothing)
 import System.Directory (setCurrentDirectory, getHomeDirectory, makeAbsolute)
+import XMonad.Prelude
 import XMonad
 import XMonad.Actions.DynamicWorkspaces
 import XMonad.Prompt
@@ -74,7 +69,9 @@ import qualified XMonad.Util.ExtensibleState as XS
 -- the working directory to the one configured for the matching
 -- project.  If the workspace doesn't have any windows, the project's
 -- start-up hook is executed.  This allows you to launch applications
--- or further configure the workspace/project.
+-- or further configure the workspace/project. To close a project,
+-- you can use the functions provided by "XMonad.Actions.DynamicWorkspaces",
+-- such as @removeWorkspace@ or @removeWorkspaceByTag@.
 --
 -- When using the @switchProjectPrompt@ function, workspaces are
 -- created as needed.  This means you can create new project spaces
@@ -114,11 +111,11 @@ import qualified XMonad.Util.ExtensibleState as XS
 --
 -- And finally, configure some optional key bindings:
 --
--- >  , ((modm, xK_space), switchProjectPrompt)
--- >  , ((modm, xK_slash), shiftToProjectPrompt)
+-- >  , ((modm, xK_space), switchProjectPrompt def)
+-- >  , ((modm, xK_slash), shiftToProjectPrompt def)
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 --------------------------------------------------------------------------------
 type ProjectName  = String
@@ -130,14 +127,14 @@ data Project = Project
   { projectName      :: !ProjectName    -- ^ Workspace name.
   , projectDirectory :: !FilePath       -- ^ Working directory.
   , projectStartHook :: !(Maybe (X ())) -- ^ Optional start-up hook.
-  } deriving Typeable
+  }
 
 --------------------------------------------------------------------------------
 -- | Internal project state.
 data ProjectState = ProjectState
   { projects        :: !ProjectTable
   , previousProject :: !(Maybe WorkspaceId)
-  } deriving Typeable
+  }
 
 --------------------------------------------------------------------------------
 instance ExtensionClass ProjectState where
@@ -235,7 +232,9 @@ lookupProject name = Map.lookup name <$> XS.gets projects
 
 --------------------------------------------------------------------------------
 -- | Fetch the current project (the one being used for the currently
--- active workspace).
+-- active workspace). If the workspace doesn't have a project, a
+-- default project is returned, using the workspace name as the
+-- project name.
 currentProject :: X Project
 currentProject = do
   name <- gets (W.tag . W.workspace . W.current . windowset)
@@ -260,20 +259,7 @@ modifyProject f = do
 --------------------------------------------------------------------------------
 -- | Switch to the given project.
 switchProject :: Project -> X ()
-switchProject p = do
-  oldws <- gets (W.workspace . W.current . windowset)
-  oldp <- currentProject
-
-  let name = W.tag oldws
-      ws   = W.integrate' (W.stack oldws)
-
-  -- If the project we are switching away from has no windows, and
-  -- it's a dynamic project, remove it from the configuration.
-  when (null ws && isNothing (projectStartHook oldp)) $ do
-    removeWorkspaceByTag name -- also remove the old workspace
-    XS.modify (\s -> s {projects = Map.delete name $ projects s})
-
-  appendWorkspace (projectName p)
+switchProject p = appendWorkspace (projectName p)
 
 --------------------------------------------------------------------------------
 -- | Prompt for a project name and then switch to it.  Automatically

@@ -1,7 +1,7 @@
-{-# LANGUAGE DeriveDataTypeable #-}
 -----------------------------------
 -- |
 -- Module      : XMonad.Hooks.WallpaperSetter
+-- Description : Change the wallpapers depending on visible workspaces.
 -- Copyright   : (c) Anton Pirogov, 2014
 -- License     : BSD3
 --
@@ -24,6 +24,7 @@ module XMonad.Hooks.WallpaperSetter (
   -- $todo
 ) where
 import XMonad
+import XMonad.Prelude
 import qualified XMonad.StackSet as S
 import qualified XMonad.Util.ExtensibleState as XS
 
@@ -34,12 +35,6 @@ import System.FilePath ((</>))
 import System.Random (randomRIO)
 
 import qualified Data.Map as M
-import Data.List (sortBy)
-import Data.Char (isAlphaNum)
-import Data.Ord (comparing)
-
-import Control.Monad
-import Data.Maybe
 
 -- $usage
 -- This module requires imagemagick and feh to be installed, as these are utilized
@@ -67,7 +62,7 @@ import Data.Maybe
 -- * find out how to merge multiple images from stdin to one (-> for caching all pictures in memory)
 
 -- | internal. to use XMonad state for memory in-between log-hook calls and remember PID of old external call
-data WCState = WCState (Maybe [WorkspaceId]) (Maybe ProcessHandle) deriving Typeable
+data WCState = WCState (Maybe [WorkspaceId]) (Maybe ProcessHandle)
 instance ExtensionClass WCState where
   initialValue = WCState Nothing Nothing
 
@@ -79,13 +74,12 @@ data Wallpaper = WallpaperFix FilePath -- ^ Single, fixed wallpaper
 newtype WallpaperList = WallpaperList [(WorkspaceId, Wallpaper)]
   deriving (Show,Read)
 
-instance Monoid WallpaperList where
-  mempty = WallpaperList []
-  mappend (WallpaperList w1) (WallpaperList w2) =
+instance Semigroup WallpaperList where
+  WallpaperList w1 <> WallpaperList w2 =
     WallpaperList $ M.toList $ M.fromList w2 `M.union` M.fromList w1
 
-instance Semigroup WallpaperList where
-  (<>) = mappend
+instance Monoid WallpaperList where
+  mempty = WallpaperList []
 
 -- | Complete wallpaper configuration passed to the hook
 data WallpaperConf = WallpaperConf {
@@ -146,7 +140,7 @@ getPicPath conf (WallpaperDir dir) = do
   direxists <- doesDirectoryExist $ wallpaperBaseDir conf </> dir
   if direxists
     then do files <- getDirectoryContents $ wallpaperBaseDir conf </> dir
-            let files' = filter ((/='.').head) files
+            let files' = filter (not . ("." `isPrefixOf`)) files
             file <- pickFrom files'
             return $ Just $ wallpaperBaseDir conf </> dir </> file
     else return Nothing
@@ -180,7 +174,7 @@ completeWPConf (WallpaperConf dir (WallpaperList ws)) = do
 getVisibleWorkspaces :: X [WorkspaceId]
 getVisibleWorkspaces = do
   winset <- gets windowset
-  return $ map (S.tag . S.workspace) . sortBy (comparing S.screen) $ S.current winset : S.visible winset
+  return $ map (S.tag . S.workspace) . sortOn S.screen $ S.current winset : S.visible winset
 
 getPicPathsAndWSRects :: WallpaperConf -> X [(Rectangle, FilePath)]
 getPicPathsAndWSRects wpconf = do
@@ -189,9 +183,8 @@ getPicPathsAndWSRects wpconf = do
   visws <- getVisibleWorkspaces
   let visscr = S.current winset : S.visible winset
       visrects = M.fromList $ map (\x -> ((S.tag . S.workspace) x, S.screenDetail x)) visscr
-      hasPicAndIsVisible (n, mp) = n `elem` visws && (isJust mp)
       getRect tag = screenRect $ fromJust $ M.lookup tag visrects
-      foundpaths = map (\(n,Just p)->(getRect n,p)) $ filter hasPicAndIsVisible paths
+      foundpaths = [ (getRect n, p) | (n, Just p) <- paths, n `elem` visws ]
   return foundpaths
   where getPicPaths = mapM (\(x,y) -> getPicPath wpconf y
                              >>= \p -> return (x,p)) wl
@@ -228,4 +221,4 @@ layerCommand (rect, path) = do
     Just rotate -> let size = show (rect_width rect) ++ "x" ++ show (rect_height rect) in
                      " \\( '"++path++"' "++(if rotate then "-rotate 90 " else "")
                       ++ " -scale "++size++"^ -gravity center -extent "++size++" +gravity \\)"
-                      ++ " -geometry +" ++ (show $rect_x rect) ++ "+" ++ (show $rect_y rect) ++ " -composite "
+                      ++ " -geometry +" ++ show (rect_x rect) ++ "+" ++ show (rect_y rect) ++ " -composite "

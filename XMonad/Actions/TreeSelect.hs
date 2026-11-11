@@ -2,9 +2,11 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE LambdaCase #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.TreeSelect
+-- Description :  Display workspaces or actions in a tree-like format.
 -- Copyright   :  (c) Tom Smeets <tom.tsmeets@gmail.com>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -64,13 +66,11 @@ module XMonad.Actions.TreeSelect
 
 import Control.Monad.Reader
 import Control.Monad.State
-import Data.List (find)
-import Data.Maybe
 import Data.Tree
-import Foreign
+import Foreign (shiftL, shiftR, (.&.))
 import System.IO
-import System.Posix.Process (forkProcess, executeFile)
 import XMonad hiding (liftX)
+import XMonad.Prelude
 import XMonad.StackSet as W
 import XMonad.Util.Font
 import XMonad.Util.NamedWindows
@@ -79,8 +79,9 @@ import XMonad.Hooks.WorkspaceHistory
 import qualified Data.Map as M
 
 #ifdef XFT
-import Graphics.X11.Xft
+import qualified Data.List.NonEmpty as NE
 import Graphics.X11.Xrender
+import Graphics.X11.Xft
 #endif
 
 -- $usage
@@ -151,9 +152,10 @@ import Graphics.X11.Xrender
 
 -- $pixel
 --
--- The 'Pixel' Color format is in the form of @0xaarrggbb@
+-- The 'Pixel' Color format is in the form of @0xaarrggbb@.
 --
--- Note that transparency is only supported if you have a window compositor running like <https://github.com/chjj/compton compton>
+-- Note that transparency is only supported if you have a window compositor
+-- such as <https://github.com/yshui/picom picom> running.
 --
 -- Some Examples:
 --
@@ -318,7 +320,9 @@ treeselectAt conf@TSConfig{..} zipper hist = withDisplay $ \display -> do
         set_colormap attributes colormap
         set_background_pixel attributes ts_background
         set_border_pixel attributes 0
-        createWindow display rootw rect_x rect_y rect_width rect_height 0 (visualInfo_depth vinfo) inputOutput (visualInfo_visual vinfo) (cWColormap .|. cWBorderPixel .|. cWBackPixel) attributes
+        w <- createWindow display rootw rect_x rect_y rect_width rect_height 0 (visualInfo_depth vinfo) inputOutput (visualInfo_visual vinfo) (cWColormap .|. cWBorderPixel .|. cWBackPixel) attributes
+        setClassHint display w (ClassHint "xmonad-tree_select" "xmonad")
+        pure w
 
     liftIO $ do
         -- TODO: move below?
@@ -407,7 +411,7 @@ treeselectWorkspace c xs f = do
                             , "XConfig.workspaces: "
                             ] ++ map tag ws
         hPutStrLn stderr msg
-        _ <- forkProcess $ executeFile "xmessage" True [msg] Nothing
+        xmessage msg
         return ()
   where
     mkNode n w = do
@@ -450,8 +454,8 @@ splitPath i = case break (== '.') i of
 -- >        ]
 -- >    ]
 treeselectAction :: TSConfig (X a) -> Forest (TSNode (X a)) -> X ()
-treeselectAction c xs = treeselect c xs >>= \x -> case x of
-    Just a  -> a >> return ()
+treeselectAction c xs = treeselect c xs >>= \case
+    Just a  -> void a
     Nothing -> return ()
 
 forMForest :: (Functor m, Applicative m, Monad m) => [Tree a] -> (a -> m b) -> m [Tree b]
@@ -463,7 +467,7 @@ mapMTree f (Node x xs) = Node <$> f x <*>  mapM (mapMTree f) xs
 
 -- | Quit returning the currently selected node
 select :: TreeSelect a (Maybe a)
-select = Just <$> gets (tsn_value . cursor . tss_tree)
+select = gets (Just . (tsn_value . cursor . tss_tree))
 
 -- | Quit without returning anything
 cancel :: TreeSelect a (Maybe a)
@@ -530,11 +534,11 @@ navigate = gets tss_display >>= \d -> join . liftIO . allocaXEvent $ \e -> do
     ev <- getEvent e
 
     if | ev_event_type ev == keyPress -> do
-           (ks, _) <- lookupString $ asKeyEvent e
+           ks <- keycodeToKeysym d (ev_keycode ev) 0
            return $ do
-               mask <- liftX $ cleanMask (ev_state ev)
+               mask <- liftX $ cleanKeyMask <*> pure (ev_state ev)
                f <- asks ts_navigate
-               fromMaybe navigate $ M.lookup (mask, fromMaybe xK_VoidSymbol ks) f
+               fromMaybe navigate $ M.lookup (mask, ks) f
        | ev_event_type ev == buttonPress -> do
            -- See XMonad.Prompt Note [Allow ButtonEvents]
            allowEvents d replayPointer currentTime
@@ -646,17 +650,29 @@ drawStringXMF display window visual colormap gc font col x y text = case font of
         setForeground display gc col
         wcDrawImageString display window fnt gc x y text
 #ifdef XFT
-    Xft fnt -> do
+    Xft fnts -> do
         withXftDraw display window visual colormap $
             \ft_draw -> withXftColorValue display visual colormap (fromARGB col) $
-            \ft_color -> xftDrawString ft_draw ft_color fnt x y text
+#if MIN_VERSION_X11_xft(0, 3, 4)
+            \ft_color -> xftDrawStringFallback ft_draw ft_color (NE.toList fnts) (fi x) (fi y) text
+#else
+            \ft_color -> xftDrawString ft_draw ft_color (NE.head fnts) x y text
+#endif
 
 -- | Convert 'Pixel' to 'XRenderColor'
 --
 -- Note that it uses short to represent its components
 fromARGB :: Pixel -> XRenderColor
-fromARGB x = XRenderColor (fromIntegral $ 0xff00 .&. shiftR x 8)  -- red
-                          (fromIntegral $ 0xff00 .&. shiftL x 8)  -- blue   (swapped with green as a workaround for the
-                          (fromIntegral $ 0xff00 .&. x)           -- green   faulty Storable instance in X11-xft <= 0.3.1)
-                          (fromIntegral $ 0xff00 .&. shiftR x 16) -- alpha
+fromARGB x =
+#if MIN_VERSION_X11_xft(0, 3, 3)
+    XRenderColor r g b a
+#else
+    -- swapped green/blue as a workaround for the faulty Storable instance in X11-xft < 0.3.3
+    XRenderColor r b g a
+#endif
+  where
+    r = fromIntegral $ 0xff00 .&. shiftR x 8
+    g = fromIntegral $ 0xff00 .&. x
+    b = fromIntegral $ 0xff00 .&. shiftL x 8
+    a = fromIntegral $ 0xff00 .&. shiftR x 16
 #endif

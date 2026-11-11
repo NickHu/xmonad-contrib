@@ -3,6 +3,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.PerScreen
+-- Description :  Configure layouts based on the width of your screen.
 -- Copyright   :  (c) Edward Z. Yang
 -- License     :  BSD-style (see LICENSE)
 --
@@ -25,10 +26,10 @@ module XMonad.Layout.PerScreen
 import XMonad
 import qualified XMonad.StackSet as W
 
-import Data.Maybe (fromMaybe)
+import XMonad.Prelude (fromMaybe)
 
 -- $usage
--- You can use this module by importing it into your ~\/.xmonad\/xmonad.hs file:
+-- You can use this module by importing it into your @xmonad.hs@ file:
 --
 -- > import XMonad.Layout.PerScreen
 --
@@ -41,8 +42,8 @@ import Data.Maybe (fromMaybe)
 
 ifWider :: (LayoutClass l1 a, LayoutClass l2 a)
                => Dimension   -- ^ target screen width
-               -> (l1 a)      -- ^ layout to use when the screen is wide enough
-               -> (l2 a)      -- ^ layout to use otherwise
+               -> l1 a        -- ^ layout to use when the screen is wide enough
+               -> l2 a        -- ^ layout to use otherwise
                -> PerScreen l1 l2 a
 ifWider w = PerScreen w False
 
@@ -57,7 +58,7 @@ mkNewPerScreenT (PerScreen w _ lt lf) mlt' =
 mkNewPerScreenF :: PerScreen l1 l2 a -> Maybe (l2 a) ->
                       PerScreen l1 l2 a
 mkNewPerScreenF (PerScreen w _ lt lf) mlf' =
-    (\lf' -> PerScreen w False lt lf') $ fromMaybe lf mlf'
+    PerScreen w False lt $ fromMaybe lf mlf'
 
 instance (LayoutClass l1 a, LayoutClass l2 a, Show a) => LayoutClass (PerScreen l1 l2) a where
     runLayout (W.Workspace i p@(PerScreen w _ lt lf) ms) r
@@ -68,7 +69,7 @@ instance (LayoutClass l1 a, LayoutClass l2 a, Show a) => LayoutClass (PerScreen 
 
     handleMessage (PerScreen w bool lt lf) m
         | bool      = handleMessage lt m >>= maybe (return Nothing) (\nt -> return . Just $ PerScreen w bool nt lf)
-        | otherwise = handleMessage lf m >>= maybe (return Nothing) (\nf -> return . Just $ PerScreen w bool lt nf)
+        | otherwise = handleMessage lf m >>= maybe (return Nothing) (return . Just . PerScreen w bool lt)
 
     description (PerScreen _ True  l1 _) = description l1
     description (PerScreen _ _     _ l2) = description l2

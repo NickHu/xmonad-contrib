@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Doc.Developing
+-- Description :  Brief overview of the xmonad internals.
 -- Copyright   :  (C) 2007 Andrea Rossato
 -- License     :  BSD3
 --
@@ -67,6 +68,11 @@ module XMonad.Doc.Developing
 --------------------------------------------------------------------------------
 
 {- $writing
+
+Here are some libraries that may be useful when writing your own module:
+
+  - XMonad.Prelude: Re-export commonly used functions from prelude, as
+    well as some xmonad-specific helpers.
 -}
 
 {- $xmonad-libs
@@ -80,7 +86,7 @@ customize the window manager to fit her needs.
 
 Basically, xmonad and the xmonad-contrib libraries let users write
 their own window manager in just a few lines of code. While
-@~\/.xmonad\/xmonad.hs@ at first seems to be simply a configuration
+@xmonad.hs@ at first seems to be simply a configuration
 file, it is actually a complete Haskell program which uses the xmonad
 and xmonad-contrib libraries to create a custom window manager.
 
@@ -100,13 +106,13 @@ manager you are writing in any way you see fit.
 xmonad installs a binary, @xmonad@, which must be executed by the
 Xsession starting script. This binary, whose code can be read in
 @Main.hs@ of the xmonad source tree, will use 'XMonad.Core.recompile'
-to run @ghc@ in order to build a binary from @~\/.xmonad\/xmonad.hs@.
+to run @ghc@ in order to build a binary from @xmonad.hs@.
 If this compilation process fails, for any reason, a default @main@
 entry point will be used, which calls the 'XMonad.Main.xmonad'
 function with a default configuration.
 
 Thus, the real @main@ entry point, the one that even the users' custom
-window manager application in @~\/.xmonad\/xmonad.hs@ must call, is
+window manager application in @xmonad.hs@ must call, is
 the 'XMonad.Main.xmonad' function. This function takes a configuration
 as its only argument, whose type ('XMonad.Core.XConfig')
 is defined in "XMonad.Core".
@@ -243,32 +249,13 @@ to do
 
 {- $style
 
-These are the coding guidelines for contributing to xmonad and the
-xmonad contributed extensions.
+For coding style guidelines while contributing, please see the
+<https://github.com/xmonad/xmonad/blob/master/CONTRIBUTING.md#style-guidelines style guidelines>
+of xmonad's CONTRIBUTING.md.
 
-* Comment every top level function (particularly exported funtions), and
-  provide a type signature.
-
-* Use Haddock syntax in the comments (see below).
-
-* Follow the coding style of the other modules.
-
-* Code should be compilable with "ghc-options: -Wall -Werror" set in the
-xmonad-contrib.cabal file. There should be no warnings.
-
-* Code should be free of any warnings or errors from the Hlint tool; use your
-  best judgement on some warnings like eta-reduction or bracket removal, though.
-
-* Partial functions should be avoided: the window manager should not
-  crash, so never call 'error' or 'undefined'.
-
-* Tabs are /illegal/. Use 4 spaces for indenting.
-
-* Any pure function added to the core must have QuickCheck properties
-  precisely defining its behaviour. Tests for everything else are encouraged.
-
-For examples of Haddock documentation syntax, have a look at other
-extensions.  Important points are:
+For examples of Haddock documentation syntax, have a look at
+<https://haskell-haddock.readthedocs.io/en/latest/markup.html its documentation>
+or other extensions.  Important points are:
 
 * Every exported function (or even better, every function) should have
   a Haddock comment explaining what it does, and providing examples.
@@ -285,9 +272,16 @@ extensions.  Important points are:
 
 To generate and view the Haddock documentation for your extension, run
 
-> runhaskell Setup haddock
+> stack haddock --no-haddock-deps
 
-and then point your browser to @\/path\/to\/XMonadContrib\/dist\/doc\/html\/xmonad-contrib\/index.html@.
+If the builds succeeds, at the end stack should tell you where the
+generated @index.html@ is located.
+
+Alternatively, you can also run
+
+> cabal haddock
+
+to similar effect.
 
 For more information, see the Haddock documentation:
 <http://www.haskell.org/haddock/doc/html/index.html>.
@@ -301,6 +295,6 @@ extension, see the tutorial on the wiki:
 {- $license
 
 New modules should identify the author, and be submitted under the
-same license as xmonad (BSD3 license or freer).
+same license as xmonad (BSD3).
 
 -}

@@ -1,7 +1,10 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ParallelListComp #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Actions.PhysicalScreens
+-- Description  : Manipulate screens ordered by physical location instead of ID.
 -- Copyright    : (c) Nelson Elhage <nelhage@mit.edu>
 -- License      : BSD
 --
@@ -27,13 +30,14 @@ module XMonad.Actions.PhysicalScreens (
                                       , getScreenIdAndRectangle
                                       , screenComparatorById
                                       , screenComparatorByRectangle
+                                      , rescreen
                                       ) where
 
-import XMonad
+import Data.List.NonEmpty (nonEmpty)
+import XMonad hiding (rescreen)
+import XMonad.Prelude (elemIndex, fromMaybe, on, sortBy, NonEmpty((:|)))
+import qualified Data.List.NonEmpty as NE
 import qualified XMonad.StackSet as W
-
-import Data.List (sortBy,findIndex)
-import Data.Function (on)
 
 {- $usage
 
@@ -47,7 +51,7 @@ To create a screen comparator you can use screenComparatorByRectangle or screenC
 The default ScreenComparator orders screens by the upper-left-most corner, from top-to-bottom
 and then left-to-right.
 
-Example usage in your @~\/.xmonad\/xmonad.hs@ file:
+Example usage in your @xmonad.hs@ file:
 
 > import XMonad.Actions.PhysicalScreens
 > import Data.Default
@@ -66,17 +70,17 @@ Example usage in your @~\/.xmonad\/xmonad.hs@ file:
 >     , (f, mask) <- [(viewScreen def, 0), (sendToScreen def, shiftMask)]]
 
 For detailed instructions on editing your key bindings, see
-"XMonad.Doc.Extending#Editing_key_bindings".
+<https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
  -}
 
 -- | The type of the index of a screen by location
 newtype PhysicalScreen = P Int deriving (Eq,Ord,Show,Read,Enum,Num,Integral,Real)
 
-getScreenIdAndRectangle :: (W.Screen i l a ScreenId ScreenDetail) -> (ScreenId, Rectangle)
+getScreenIdAndRectangle :: W.Screen i l a ScreenId ScreenDetail -> (ScreenId, Rectangle)
 getScreenIdAndRectangle screen = (W.screen screen, rect) where
   rect = screenRect $ W.screenDetail screen
 
--- | Translate a physical screen index to a "ScreenId"
+-- | Translate a physical screen index to a 'ScreenId'
 getScreen:: ScreenComparator -> PhysicalScreen -> X (Maybe ScreenId)
 getScreen (ScreenComparator cmpScreen) (P i) = do w <- gets windowset
                                                   let screens = W.current w : W.visible w
@@ -89,8 +93,8 @@ getScreen (ScreenComparator cmpScreen) (P i) = do w <- gets windowset
 viewScreen :: ScreenComparator -> PhysicalScreen -> X ()
 viewScreen sc p = do i <- getScreen sc p
                      whenJust i $ \s -> do
-                     w <- screenWorkspace s
-                     whenJust w $ windows . W.view
+                         w <- screenWorkspace s
+                         whenJust w $ windows . W.view
 
 -- | Send the active window to a given physical screen
 sendToScreen :: ScreenComparator -> PhysicalScreen -> X ()
@@ -131,7 +135,7 @@ getNeighbour :: ScreenComparator -> Int -> X ScreenId
 getNeighbour (ScreenComparator cmpScreen) d =
   do w <- gets windowset
      let ss = map W.screen $ sortBy (cmpScreen `on` getScreenIdAndRectangle) $ W.current w : W.visible w
-         curPos = maybe 0 id $ findIndex (== W.screen (W.current w)) ss
+         curPos = fromMaybe 0 $ elemIndex (W.screen (W.current w)) ss
          pos = (curPos + d) `mod` length ss
      return $ ss !! pos
 
@@ -147,3 +151,53 @@ onNextNeighbour sc = neighbourWindows sc 1
 -- | Apply operation on a WindowSet with the WorkspaceId of the previous screen in the physical order as parameter.
 onPrevNeighbour :: ScreenComparator -> (WorkspaceId -> WindowSet -> WindowSet) -> X ()
 onPrevNeighbour sc = neighbourWindows sc (-1)
+
+-- | An alternative to 'XMonad.Operations.rescreen' that avoids reshuffling
+-- the workspaces if the number of screens doesn't change and only their
+-- locations do. Useful for users of @xrandr --setmonitor@.
+--
+-- See 'XMonad.Hooks.Rescreen.setRescreenWorkspacesHook', which lets you
+-- replace the builtin rescreen handler.
+rescreen :: ScreenComparator -> X ()
+rescreen (ScreenComparator cmpScreen) = withDisplay (fmap nonEmpty . getCleanedScreenInfo) >>= \case
+    Nothing -> trace "getCleanedScreenInfo returned []"
+    Just xinescs -> windows $ rescreen' xinescs
+  where
+    rescreen' :: NonEmpty Rectangle -> WindowSet -> WindowSet
+    rescreen' xinescs ws
+      | NE.length xinescs == length (W.visible ws) + 1 = rescreenSameLength xinescs ws
+      | otherwise = rescreenCore xinescs ws
+
+    -- the 'XMonad.Operations.rescreen' implementation from core as a fallback
+    rescreenCore :: NonEmpty Rectangle -> WindowSet -> WindowSet
+    rescreenCore (xinesc :| xinescs) ws@W.StackSet{ W.current = v, W.visible = vs, W.hidden = hs } =
+        let (xs, ys) = splitAt (length xinescs) (map W.workspace vs ++ hs)
+            a = W.Screen (W.workspace v) 0 (SD xinesc)
+            as = zipWith3 W.Screen xs [1..] $ map SD xinescs
+        in  ws{ W.current = a
+              , W.visible = as
+              , W.hidden  = ys }
+
+    -- sort both existing screens and the screens we just got from xinerama
+    -- using cmpScreen, and then replace the rectangles in the WindowSet,
+    -- keeping the order of current/visible workspaces intact
+    rescreenSameLength :: NonEmpty Rectangle -> WindowSet -> WindowSet
+    rescreenSameLength xinescs ws =
+        ws{ W.current = (W.current ws){ W.screenDetail = SD newCurrentRect }
+          , W.visible = [ w{ W.screenDetail = SD r } | w <- W.visible ws | r <- newVisibleRects ]
+          }
+      where
+        undoSort =
+            NE.map fst $
+            NE.sortBy (cmpScreen `on` (getScreenIdAndRectangle . snd)) $
+            NE.zip ((0 :: Int) :| [1..]) $ -- add indices to undo the sort later
+            W.current ws :| W.visible ws
+        newCurrentRect :| newVisibleRects =
+            NE.map snd $ NE.sortWith fst $ NE.zip undoSort $ -- sort back into current:visible order
+            NE.map snd $ NE.sortBy cmpScreen $ NE.zip (0 :| [1..]) xinescs
+
+    -- TODO:
+    -- If number of screens before and after isn't the same, we might still
+    -- try to match locations and avoid changing the workspace for those that
+    -- didn't move, while making sure that the current workspace is still
+    -- visible somewhere.

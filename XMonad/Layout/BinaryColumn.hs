@@ -1,7 +1,8 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.BinaryColumn
+-- Description :  A layout that places all windows in one column.
 -- Copyright   :  (c) 2009 Ilya Portnov, (c) 2018 Campbell Barton
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -13,7 +14,7 @@
 -- Each window is half the height of the previous,
 -- except for the last pair of windows.
 --
--- Note: Originally based on 'XMonad.Layout.Column' with changes:
+-- Note: Originally based on "XMonad.Layout.Column" with changes:
 --
 -- * Adding/removing windows doesn't resize all other windows.
 -- (last window pair exception).
@@ -82,55 +83,51 @@ columnLayout (BinaryColumn scale min_size) rect stack = zip ws rects
     heights_noflip =
       let
         -- Regular case: check for min size.
-        f n size div False = let
-          n_fl = (fromIntegral n)
-          n_prev_fl = (fromIntegral (n + 1))
-          div_test = min (div) (n_prev_fl)
-          value_test = (toInteger (round ((fromIntegral size) / div_test)))
-          value_max = size - (toInteger (min_size * n))
+        f m size divide False = let
+          m_fl = fromIntegral m
+          m_prev_fl = fromIntegral (m + 1)
+          div_test = min divide m_prev_fl
+          value_test = round (fromIntegral size / div_test) :: Integer
+          value_max = size - toInteger (min_size * m)
           (value, divide_next, no_room) =
             if value_test < value_max then
-              (value_test, div, False)
+              (value_test, divide, False)
             else
-              (value_max, n_fl, True)
+              (value_max, m_fl, True)
           size_next = size - value
-          n_next = n - 1
+          m_next = m - 1
           in value
-          : f n_next size_next divide_next no_room
+          : f m_next size_next divide_next no_room
         -- Fallback case: when windows have reached min size
         -- simply create an even grid with the remaining space.
-        f n size div True = let
-          n_fl = (fromIntegral n)
-          value_even = ((fromIntegral size) / div)
-          value = (toInteger (round value_even))
+        f m size divide True = let
+          divide_next = fromIntegral m
+          value_even = (fromIntegral size / divide)
+          value = round value_even :: Integer
 
-          n_next = n - 1
+          m_next = m - 1
           size_next = size - value
-          divide_next = n_fl
           in value
-          : f n_next size_next n_fl True
-        -- Last item: included twice.
-        f 0 size div no_room_prev =
-          [size];
+          : f m_next size_next divide_next True
       in f
          n_init size_init divide_init False
       where
         n_init = n - 1
-        size_init = (toInteger (rect_height rect))
+        size_init = toInteger (rect_height rect)
         divide_init =
           if scale_abs == 0.0 then
-            (fromIntegral n)
+            fromIntegral n
           else
-            (1.0 / (0.5 * scale_abs))
+            1.0 / (0.5 * scale_abs)
 
     heights =
-      if (scale < 0.0) then
+      if scale < 0.0 then
         Data.List.reverse (take n heights_noflip)
       else
         heights_noflip
 
     ys = [fromIntegral $ sum $ take k heights | k <- [0..n - 1]]
-    rects = map (mkRect rect) $ zip heights ys
+    rects = zipWith (curry (mkRect rect)) heights ys
 
 mkRect :: XMonad.Rectangle
   -> (Integer,XMonad.Position)

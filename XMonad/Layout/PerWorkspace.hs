@@ -3,6 +3,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.PerWorkspace
+-- Description :  Use layouts and apply layout modifiers selectively.
 -- Copyright   :  (c) Brent Yorgey
 -- License     :  BSD-style (see LICENSE)
 --
@@ -25,10 +26,10 @@ module XMonad.Layout.PerWorkspace
 import XMonad
 import qualified XMonad.StackSet as W
 
-import Data.Maybe (fromMaybe)
+import XMonad.Prelude (fromMaybe)
 
 -- $usage
--- You can use this module by importing it into your ~\/.xmonad\/xmonad.hs file:
+-- You can use this module by importing it into your @xmonad.hs@ file:
 --
 -- > import XMonad.Layout.PerWorkspace
 --
@@ -41,7 +42,7 @@ import Data.Maybe (fromMaybe)
 --
 -- Note that @l1@, @l2@, and @l3@ can be arbitrarily complicated
 -- layouts, e.g. @(Full ||| smartBorders $ tabbed shrinkText
--- defaultTConf ||| ...)@, and @m1@ can be any layout modifier, i.e. a
+-- def ||| ...)@, and @m1@ can be any layout modifier, i.e. a
 -- function of type @(l a -> ModifiedLayout lm l a)@. (In fact, @m1@ can be any
 -- function @(LayoutClass l a, LayoutClass l' a) => l a -> l' a@.)
 --
@@ -56,8 +57,8 @@ import Data.Maybe (fromMaybe)
 --   'onWorkspace', and so on.
 onWorkspace :: (LayoutClass l1 a, LayoutClass l2 a)
                => WorkspaceId -- ^ the tag of the workspace to match
-               -> (l1 a)      -- ^ layout to use on the matched workspace
-               -> (l2 a)      -- ^ layout to use everywhere else
+               -> l1 a        -- ^ layout to use on the matched workspace
+               -> l2 a        -- ^ layout to use everywhere else
                -> PerWorkspace l1 l2 a
 onWorkspace wsId = onWorkspaces [wsId]
 
@@ -65,8 +66,8 @@ onWorkspace wsId = onWorkspaces [wsId]
 --   another to use on all other workspaces.
 onWorkspaces :: (LayoutClass l1 a, LayoutClass l2 a)
                 => [WorkspaceId]  -- ^ tags of workspaces to match
-                -> (l1 a)         -- ^ layout to use on matched workspaces
-                -> (l2 a)         -- ^ layout to use everywhere else
+                -> l1 a           -- ^ layout to use on matched workspaces
+                -> l2 a           -- ^ layout to use everywhere else
                 -> PerWorkspace l1 l2 a
 onWorkspaces wsIds = modWorkspaces wsIds . const
 
@@ -108,7 +109,7 @@ instance (LayoutClass l1 a, LayoutClass l2 a, Show a) => LayoutClass (PerWorkspa
 
     handleMessage (PerWorkspace wsIds bool lt lf) m
         | bool      = handleMessage lt m >>= maybe (return Nothing) (\nt -> return . Just $ PerWorkspace wsIds bool nt lf)
-        | otherwise = handleMessage lf m >>= maybe (return Nothing) (\nf -> return . Just $ PerWorkspace wsIds bool lt nf)
+        | otherwise = handleMessage lf m >>= maybe (return Nothing) (return . Just . PerWorkspace wsIds bool lt)
 
     description (PerWorkspace _ True  l1 _) = description l1
     description (PerWorkspace _ _     _ l2) = description l2
@@ -122,5 +123,4 @@ mkNewPerWorkspaceT (PerWorkspace wsIds _ lt lf) mlt' =
 mkNewPerWorkspaceF :: PerWorkspace l1 l2 a -> Maybe (l2 a) ->
                       PerWorkspace l1 l2 a
 mkNewPerWorkspaceF (PerWorkspace wsIds _ lt lf) mlf' =
-    (\lf' -> PerWorkspace wsIds False lt lf') $ fromMaybe lf mlf'
-
+    PerWorkspace wsIds False lt $ fromMaybe lf mlf'

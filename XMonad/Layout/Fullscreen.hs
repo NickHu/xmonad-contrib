@@ -1,7 +1,9 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleContexts, MultiParamTypeClasses, FlexibleInstances, TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleContexts, MultiParamTypeClasses, FlexibleInstances #-}
+{-# OPTIONS_GHC -Wno-deprecations #-} -- FIXME: fullscreenStartup temporarily silenced
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Fullscreen
+-- Description :  Send messages about fullscreen windows to layouts.
 -- Copyright   :  (c) 2010 Audun Skaugen
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -32,6 +34,7 @@ module XMonad.Layout.Fullscreen
     ) where
 
 import           XMonad
+import           XMonad.Prelude
 import           XMonad.Layout.LayoutModifier
 import           XMonad.Layout.NoBorders        (SmartBorder, smartBorders)
 import           XMonad.Hooks.EwmhDesktops      (fullscreenStartup)
@@ -40,11 +43,7 @@ import           XMonad.Util.WindowProperties
 import qualified XMonad.Util.Rectangle          as R
 import qualified XMonad.StackSet                as W
 
-import           Data.List
-import           Data.Maybe
-import           Data.Monoid
 import qualified Data.Map                       as M
-import           Control.Monad
 import           Control.Arrow                  (second)
 
 -- $usage
@@ -79,9 +78,9 @@ fullscreenSupport :: LayoutClass l Window =>
   XConfig l -> XConfig (ModifiedLayout FullscreenFull l)
 fullscreenSupport c = c {
     layoutHook = fullscreenFull $ layoutHook c,
-    handleEventHook = handleEventHook c <+> fullscreenEventHook,
-    manageHook = manageHook c <+> fullscreenManageHook,
-    startupHook = startupHook c <+> fullscreenStartup
+    handleEventHook = handleEventHook c <> fullscreenEventHook,
+    manageHook = manageHook c <> fullscreenManageHook,
+    startupHook = startupHook c <> fullscreenStartup
   }
 
 -- | fullscreenSupport with smartBorders support so the border doesn't
@@ -107,7 +106,6 @@ fullscreenSupportBorder c =
 data FullscreenMessage = AddFullscreen Window
                        | RemoveFullscreen Window
                        | FullscreenChanged
-     deriving (Typeable)
 
 instance Message FullscreenMessage
 
@@ -123,7 +121,7 @@ data FullscreenFloat a = FullscreenFloat W.RationalRect (M.Map a (W.RationalRect
 instance LayoutModifier FullscreenFull Window where
   pureMess ff@(FullscreenFull frect fulls) m = case fromMessage m of
     Just (AddFullscreen win) -> Just $ FullscreenFull frect $ nub $ win:fulls
-    Just (RemoveFullscreen win) -> Just $ FullscreenFull frect $ delete win $ fulls
+    Just (RemoveFullscreen win) -> Just $ FullscreenFull frect $ delete win fulls
     Just FullscreenChanged -> Just ff
     _ -> Nothing
 
@@ -139,11 +137,11 @@ instance LayoutModifier FullscreenFull Window where
 instance LayoutModifier FullscreenFocus Window where
   pureMess ff@(FullscreenFocus frect fulls) m = case fromMessage m of
     Just (AddFullscreen win) -> Just $ FullscreenFocus frect $ nub $ win:fulls
-    Just (RemoveFullscreen win) -> Just $ FullscreenFocus frect $ delete win $ fulls
+    Just (RemoveFullscreen win) -> Just $ FullscreenFocus frect $ delete win fulls
     Just FullscreenChanged -> Just ff
     _ -> Nothing
 
-  pureModifier (FullscreenFocus frect fulls) rect (Just (W.Stack {W.focus = f})) list
+  pureModifier (FullscreenFocus frect fulls) rect (Just W.Stack {W.focus = f}) list
      | f `elem` fulls = ((f, rect') : rest, Nothing)
      | otherwise = (list, Nothing)
      where rest = filter (not . orP (== f) (R.supersetOf rect')) list
@@ -153,7 +151,7 @@ instance LayoutModifier FullscreenFocus Window where
 instance LayoutModifier FullscreenFloat Window where
   handleMess (FullscreenFloat frect fulls) m = case fromMessage m of
     Just (AddFullscreen win) -> do
-      mrect <- (M.lookup win . W.floating) <$> gets windowset
+      mrect <- M.lookup win . W.floating <$> gets windowset
       return $ case mrect of
         Just rect -> Just $ FullscreenFloat frect $ M.insert win (rect,True) fulls
         Nothing -> Nothing
@@ -216,9 +214,7 @@ fullscreenEventHook (ClientMessageEvent _ _ _ dpy win typ (action:dats)) = do
   wmstate <- getAtom "_NET_WM_STATE"
   fullsc <- getAtom "_NET_WM_STATE_FULLSCREEN"
   wstate <- fromMaybe [] <$> getProp32 wmstate win
-  let fi :: (Integral i, Num n) => i -> n
-      fi = fromIntegral
-      isFull = fi fullsc `elem` wstate
+  let isFull = fi fullsc `elem` wstate
       remove = 0
       add = 1
       toggle = 2
@@ -234,11 +230,11 @@ fullscreenEventHook (ClientMessageEvent _ _ _ dpy win typ (action:dats)) = do
       sendMessage FullscreenChanged
   return $ All True
 
-fullscreenEventHook (DestroyWindowEvent {ev_window = w}) = do
+fullscreenEventHook DestroyWindowEvent{ev_window = w} = do
   -- When a window is destroyed, the layouts should remove that window
   -- from their states.
   broadcastMessage $ RemoveFullscreen w
-  cw <- (W.workspace . W.current) <$> gets windowset
+  cw <- W.workspace . W.current <$> gets windowset
   sendMessageWithNoRefresh FullscreenChanged cw
   return $ All True
 
@@ -259,7 +255,7 @@ fullscreenManageHook' isFull = isFull --> do
   w <- ask
   liftX $ do
     broadcastMessage $ AddFullscreen w
-    cw <- (W.workspace . W.current) <$> gets windowset
+    cw <- W.workspace . W.current <$> gets windowset
     sendMessageWithNoRefresh FullscreenChanged cw
   idHook
 

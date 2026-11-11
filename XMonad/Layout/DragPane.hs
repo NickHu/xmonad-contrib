@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleInstances, MultiParamTypeClasses, PatternGuards, TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, PatternGuards #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.DragPane
+-- Description :  Split the screen either horizontally or vertically and show two windows.
 -- Copyright   :  (c) Spencer Janssen <spencerjanssen@gmail.com>
 --                    David Roundy <droundy@darcs.net>,
 --                    Andrea Rossato <andrea.rossato@unibz.it>
@@ -34,7 +35,7 @@ import XMonad.Util.Invisible
 import XMonad.Util.XUtils
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.DragPane
 --
@@ -43,9 +44,9 @@ import XMonad.Util.XUtils
 -- > myLayout = dragPane Horizontal 0.1 0.5 ||| Full ||| etc..
 -- > main = xmonad def { layoutHook = myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 halfHandleWidth :: Integral a => a
 halfHandleWidth = 1
@@ -54,7 +55,7 @@ handleColor :: String
 handleColor = "#000000"
 
 dragPane :: DragType -> Double -> Double -> DragPane a
-dragPane t x y = DragPane (I Nothing) t x y
+dragPane = DragPane (I Nothing)
 
 data DragPane a =
     DragPane (Invisible Maybe (Window,Rectangle,Int)) DragType Double Double
@@ -67,7 +68,7 @@ instance LayoutClass DragPane a where
     doLayout d@(DragPane _ Horizontal _ _) = doLay mirrorRect d
     handleMessage = handleMess
 
-data SetFrac = SetFrac Int Double deriving ( Show, Read, Eq, Typeable )
+data SetFrac = SetFrac Int Double deriving ( Show, Read, Eq)
 instance Message SetFrac
 
 handleMess :: DragPane a -> SomeMessage -> X (Maybe (DragPane a))
@@ -87,12 +88,12 @@ handleMess _ _ = return Nothing
 
 handleEvent :: DragPane a -> Event -> X ()
 handleEvent (DragPane (I (Just (win,r,ident))) ty _ _)
-            (ButtonEvent {ev_window = thisw, ev_subwindow = thisbw, ev_event_type = t })
+            ButtonEvent{ev_window = thisw, ev_subwindow = thisbw, ev_event_type = t }
     | t == buttonPress && thisw == win || thisbw == win  =
   mouseDrag (\ex ey -> do
              let frac = case ty of
-                        Vertical   -> (fromIntegral ex - (fromIntegral $ rect_x r))/(fromIntegral $ rect_width  r)
-                        Horizontal -> (fromIntegral ey - (fromIntegral $ rect_x r))/(fromIntegral $ rect_width r)
+                        Vertical   -> (fromIntegral ex - fromIntegral (rect_x r))/fromIntegral (rect_width  r)
+                        Horizontal -> (fromIntegral ey - fromIntegral (rect_x r))/fromIntegral (rect_width r)
              sendMessage (SetFrac ident frac))
             (return ())
 handleEvent _ _  = return ()
@@ -121,7 +122,7 @@ doLay mirror (DragPane mw ty delta split) r s = do
                     return (wrs, Just $ DragPane (I $ Just (w',r',ident)) ty delta split)
             I Nothing -> do
                     w <- newDragWin handr
-                    i <- io $ newUnique
+                    i <- io newUnique
                     return (wrs, Just $ DragPane (I $ Just (w,r',hashUnique i)) ty delta split)
      else return (wrs, Nothing)
 

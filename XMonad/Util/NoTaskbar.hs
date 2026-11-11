@@ -1,9 +1,24 @@
+-----------------------------------------------------------------------------
+-- |
+-- Module      : XMonad.Util.NoTaskbar
+-- Description : Mark a window to be ignored by EWMH taskbars and pagers.
+-- Copyright   : (c) ???
+-- License     : BSD3-style (see LICENSE)
+--
+-- Maintainer  : ???
+--
+-- Function and manageHook to mark a window to be ignored by EWMH
+-- taskbars and pagers.
+--
+-----------------------------------------------------------------------------
+
 module XMonad.Util.NoTaskbar (-- * Usage
                               -- $usage
                               noTaskbar
                              ,markNoTaskbar) where
 
 import XMonad.Core
+import XMonad.Prelude (fi)
 import XMonad.ManageHook
 import Graphics.X11.Xlib (Window)
 import Graphics.X11.Xlib.Atom (aTOM)
@@ -27,7 +42,3 @@ markNoTaskbar w = withDisplay $ \d -> do
                     ntb <- getAtom "_NET_WM_STATE_SKIP_TASKBAR"
                     npg <- getAtom "_NET_WM_STATE_SKIP_PAGER"
                     io $ changeProperty32 d w ws aTOM propModePrepend [fi ntb,fi npg]
-
--- sigh
-fi :: (Integral i, Num n) => i -> n
-fi = fromIntegral

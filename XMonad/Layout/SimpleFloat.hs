@@ -2,6 +2,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.SimpleFloat
+-- Description :  A basic floating layout.
 -- Copyright   :  (c) 2007 Andrea Rossato
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -32,7 +33,7 @@ import XMonad.Layout.WindowArranger
 
 -- $usage
 -- You can use this module with the following in your
--- @~\/.xmonad\/xmonad.hs@:
+-- @xmonad.hs@:
 --
 -- > import XMonad.Layout.SimpleFloat
 --
@@ -41,9 +42,9 @@ import XMonad.Layout.WindowArranger
 -- > myLayout = simpleFloat ||| Full ||| etc..
 -- > main = xmonad def { layoutHook = myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 -- | A simple floating layout where every window is placed according
 -- to the window's initial attributes.
@@ -60,7 +61,7 @@ simpleFloat' :: (Eq a, Shrinker s) => s -> Theme ->
                (ModifiedLayout MouseResize (ModifiedLayout WindowArranger SimpleFloat)) a
 simpleFloat' s c = decoration s c (Simple False) (mouseResize $ windowArrangeAll $ SF (decoHeight c))
 
-data SimpleFloat a = SF Dimension deriving (Show, Read)
+newtype SimpleFloat a = SF Dimension deriving (Show, Read)
 instance LayoutClass SimpleFloat Window where
     description _ = "Float"
     doLayout (SF i) sc (S.Stack w l r) = do
@@ -75,6 +76,6 @@ getSize i (Rectangle rx ry _ _) w = do
   let ny = ry + fi i
       x  =  max rx $ fi $ wa_x wa
       y  =  max ny $ fi $ wa_y wa
-      wh = (fi $ wa_width  wa) + (bw * 2)
-      ht = (fi $ wa_height wa) + (bw * 2)
+      wh = fi (wa_width  wa) + (bw * 2)
+      ht = fi (wa_height wa) + (bw * 2)
   return (w, Rectangle x y wh ht)

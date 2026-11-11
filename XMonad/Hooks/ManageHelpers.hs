@@ -2,6 +2,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Hooks.ManageHelpers
+-- Description  : Helper functions to be used in manageHook.
 -- Copyright    : (c) Lukas Mai
 -- License      : BSD
 --
@@ -24,18 +25,35 @@
 -- >         ],
 -- >         ...
 -- >     }
+--
+-- Here's how you can define more helpers like the ones from this module:
+--
+-- > -- some function you want to transform into an infix operator
+-- > f :: a -> b -> Bool
+-- >
+-- > -- a new helper
+-- > q ***? x = fmap (\a -> f a x) q   -- or: (\b -> f x b)
+-- > -- or
+-- > q ***? x = fmap (`f` x) q         -- or: (x `f`)
+--
+-- Any existing operator can be "lifted" in the same way:
+--
+-- > q ++? x = fmap (++ x) q
 
 module XMonad.Hooks.ManageHelpers (
     Side(..),
     composeOne,
-    (-?>), (/=?), (<==?), (</=?), (-->>), (-?>>),
+    (-?>), (/=?), (^?), (~?), ($?), (<==?), (</=?), (-->>), (-?>>),
     currentWs,
     windowTag,
     isInProperty,
     isKDETrayWindow,
     isFullscreen,
+    isMinimized,
     isDialog,
+    isNotification,
     pid,
+    desktop,
     transientTo,
     maybeToDefinite,
     MaybeManageHook,
@@ -55,17 +73,14 @@ module XMonad.Hooks.ManageHelpers (
     doSink,
     doLower,
     doRaise,
+    doFocus,
     Match,
 ) where
 
 import XMonad
+import XMonad.Prelude
 import qualified XMonad.StackSet as W
 import XMonad.Util.WindowProperties (getProp32s)
-
-import Control.Monad (filterM)
-import Data.List ((\\))
-import Data.Maybe
-import Data.Monoid
 
 import System.Posix (ProcessID)
 
@@ -89,15 +104,25 @@ composeOne = foldr try (return mempty)
     where
     try q z = do
         x <- q
-        case x of
-            Just h -> return h
-            Nothing -> z
+        maybe z return x
 
 infixr 0 -?>, -->>, -?>>
 
 -- | q \/=? x. if the result of q equals x, return False
 (/=?) :: (Eq a, Functor m) => m a -> a -> m Bool
 q /=? x = fmap (/= x) q
+
+-- | q ^? x. if the result of @x `isPrefixOf` q@, return True
+(^?) :: (Eq a, Functor m) => m [a] -> [a] -> m Bool
+q ^? x = fmap (x `isPrefixOf`) q
+
+-- | q ~? x. if the result of @x `isInfixOf` q@, return True
+(~?) :: (Eq a, Functor m) => m [a] -> [a] -> m Bool
+q ~? x = fmap (x `isInfixOf`) q
+
+-- | q $? x. if the result of @x `isSuffixOf` q@, return True
+($?) :: (Eq a, Functor m) => m [a] -> [a] -> m Bool
+q $? x = fmap (x `isSuffixOf`) q
 
 -- | q <==? x. if the result of q equals x, return True grouped with q
 (<==?) :: (Eq a, Functor m) => m a -> a -> m (Match a)
@@ -123,7 +148,7 @@ p -?> f = do
 (-->>) :: (Monoid b, Monad m) => m (Match a) -> (a -> m b) -> m b
 p -->> f = do
     Match b m <- p
-    if b then (f m) else return mempty
+    if b then f m else return mempty
 
 -- | A helper operator for use in 'composeOne'.  It takes a condition and a function taking a groupdatum to action.  If 'p' is true, it executes the resulting action.  If it fails, it returns 'Nothing' from the 'Query' so 'composeOne' will go on and try the next rule.
 (-?>>) :: (Functor m, Monad m) => m (Match a) -> (a -> m b) -> m (Maybe b)
@@ -161,16 +186,39 @@ isInProperty p v = ask >>= \w -> liftX $ do
 isFullscreen :: Query Bool
 isFullscreen = isInProperty "_NET_WM_STATE" "_NET_WM_STATE_FULLSCREEN"
 
+-- | A predicate to check whether a window is hidden (minimized).
+-- See also "XMonad.Actions.Minimize".
+isMinimized :: Query Bool
+isMinimized = isInProperty "_NET_WM_STATE" "_NET_WM_STATE_HIDDEN"
+
 -- | A predicate to check whether a window is a dialog.
+--
+-- See <https://specifications.freedesktop.org/wm/1.5/ar01s05.html#id-1.6.7>.
 isDialog :: Query Bool
 isDialog = isInProperty "_NET_WM_WINDOW_TYPE" "_NET_WM_WINDOW_TYPE_DIALOG"
+
+-- | A predicate to check whether a window is a notification.
+--
+-- See <https://specifications.freedesktop.org/wm/1.5/ar01s05.html#id-1.6.7>.
+isNotification :: Query Bool
+isNotification =
+  isInProperty "_NET_WM_WINDOW_TYPE" "_NET_WM_WINDOW_TYPE_NOTIFICATION"
 
 -- | This function returns 'Just' the @_NET_WM_PID@ property for a
 -- particular window if set, 'Nothing' otherwise.
 --
--- See <https://specifications.freedesktop.org/wm-spec/wm-spec-1.5.html#idm45623487788432>.
+-- See <https://specifications.freedesktop.org/wm/1.5/ar01s05.html#id-1.6.14>.
 pid :: Query (Maybe ProcessID)
-pid = ask >>= \w -> liftX $ getProp32s "_NET_WM_PID" w >>= pure . \case
+pid = ask >>= \w -> liftX $ getProp32s "_NET_WM_PID" w <&> \case
+    Just [x] -> Just (fromIntegral x)
+    _        -> Nothing
+
+-- | This function returns 'Just' the @_NET_WM_DESKTOP@ property for a
+-- particular window if set, 'Nothing' otherwise.
+--
+-- See <https://specifications.freedesktop.org/wm/1.5/ar01s05.html#id-1.6.6>.
+desktop :: Query (Maybe Int)
+desktop = ask >>= \w -> liftX $ getProp32s "_NET_WM_DESKTOP" w <&> \case
     Just [x] -> Just (fromIntegral x)
     _        -> Nothing
 
@@ -200,7 +248,7 @@ transience' = maybeToDefinite transience
 --
 -- See <https://tronche.com/gui/x/icccm/sec-5.html>.
 clientLeader :: Query (Maybe Window)
-clientLeader = ask >>= \w -> liftX $ getProp32s "WM_CLIENT_LEADER" w >>= pure . \case
+clientLeader = ask >>= \w -> liftX $ getProp32s "WM_CLIENT_LEADER" w <&> \case
     Just [x] -> Just (fromIntegral x)
     _        -> Nothing
 
@@ -260,12 +308,14 @@ doSideFloat :: Side -> ManageHook
 doSideFloat side = doFloatDep move
   where
     move (W.RationalRect _ _ w h) = W.RationalRect cx cy w h
-      where cx =      if side `elem` [SC,C ,NC] then (1-w)/2
-                 else if side `elem` [SW,CW,NW] then 0
-                 else {- side `elem` [SE,CE,NE] -}   1-w
-            cy =      if side `elem` [CE,C ,CW] then (1-h)/2
-                 else if side `elem` [NE,NC,NW] then 0
-                 else {- side `elem` [SE,SC,SW] -}   1-h
+      where cx
+              | side `elem` [SC,C ,NC] = (1-w)/2
+              | side `elem` [SW,CW,NW] = 0
+              | otherwise = {- side `elem` [SE,CE,NE] -} 1-w
+            cy
+              | side `elem` [CE,C ,CW] = (1-h)/2
+              | side `elem` [NE,NC,NW] = 0
+              | otherwise = {- side `elem` [SE,SC,SW] -} 1-h
 
 -- | Floats a new window with its original size, but centered.
 doCenterFloat :: ManageHook
@@ -277,7 +327,7 @@ doHideIgnore = ask >>= \w -> liftX (hide w) >> doF (W.delete w)
 
 -- | Sinks a window
 doSink :: ManageHook
-doSink = reader (Endo . W.sink)
+doSink = doF . W.sink =<< ask
 
 -- | Lower an unmanaged window. Useful together with 'doIgnore' to lower
 -- special windows that for some reason don't do it themselves.
@@ -288,3 +338,7 @@ doLower = ask >>= \w -> liftX $ withDisplay $ \dpy -> io (lowerWindow dpy w) >> 
 -- special windows that for some reason don't do it themselves.
 doRaise :: ManageHook
 doRaise = ask >>= \w -> liftX $ withDisplay $ \dpy -> io (raiseWindow dpy w) >> mempty
+
+-- | Focus a window (useful in 'XMonad.Hooks.EwmhDesktops.setActivateHook').
+doFocus :: ManageHook
+doFocus = doF . W.focusWindow =<< ask

@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Prompt.Workspace
+-- Description :  A workspace prompt.
 -- Copyright   :  (C) 2007 Andrea Rossato, David Roundy
 -- License     :  BSD3
 --
@@ -27,7 +28,7 @@ import XMonad.StackSet ( workspaces, tag )
 import XMonad.Util.WorkspaceCompare ( getSortByIndex )
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Prompt
 -- > import XMonad.Prompt.Workspace
@@ -35,9 +36,9 @@ import XMonad.Util.WorkspaceCompare ( getSortByIndex )
 -- >   , ((modm .|. shiftMask, xK_m     ), workspacePrompt def (windows . W.shift))
 --
 -- For detailed instruction on editing the key binding see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
-data Wor = Wor String
+newtype Wor = Wor String
 
 instance XPrompt Wor where
     showXPrompt (Wor x) = x

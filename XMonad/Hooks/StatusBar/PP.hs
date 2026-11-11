@@ -1,7 +1,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE PatternGuards       #-}
+{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE FlexibleContexts    #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Hooks.StatusBar.PP
+-- Description :  The pretty-printing abstraction for handling status bars.
 -- Copyright   :  (c) Don Stewart <dons@cse.unsw.edu.au>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -28,14 +32,21 @@ module XMonad.Hooks.StatusBar.PP (
     -- * Build your own formatter
     PP(..), def,
     dynamicLogString,
+    dynamicLogString',
     dynamicLogWithPP,
+
+    -- * Predicates and formatters
+    -- $predicates
+    WS(..), WSPP, WSPP', fallbackPrinters,
+    isUrgent, isCurrent, isCurrentNoWindows, isCurrentHasWindows,
+    isVisible, isVisibleNoWindows, isHidden, hasWindows,
 
     -- * Example formatters
     dzenPP, xmobarPP, sjanssenPP, byorgeyPP,
 
     -- * Formatting utilities
     wrap, pad, trim, shorten, shorten', shortenLeft, shortenLeft',
-    xmobarColor, xmobarAction, xmobarBorder,
+    xmobarColor, xmobarFont, xmobarAction, xmobarBorder,
     xmobarRaw, xmobarStrip, xmobarStripTags,
     dzenColor, dzenEscape, dzenStrip, filterOutWsPP,
 
@@ -45,16 +56,13 @@ module XMonad.Hooks.StatusBar.PP (
 
     ) where
 
-import Control.Applicative (liftA2)
-import Control.Monad (msum)
-import Data.Bool (bool)
-import Data.Char (isSpace)
-import Data.List (intercalate, isPrefixOf, sortOn, stripPrefix)
-import Data.Maybe (catMaybes, fromMaybe, isJust, mapMaybe)
-
-import qualified XMonad.StackSet as S
+import Control.Monad.Reader
+import Control.DeepSeq
+import qualified Data.List.NonEmpty as NE
 
 import XMonad
+import XMonad.Prelude
+import qualified XMonad.StackSet as S
 
 import XMonad.Util.NamedWindows
 import XMonad.Util.WorkspaceCompare
@@ -68,9 +76,8 @@ import XMonad.Hooks.UrgencyHook
 -- > import XMonad.Hooks.StatusBar.PP
 -- >
 -- > myPP = def { ppCurrent = xmobarColor "black" "white" }
--- > main = do
--- >   mySB <- statusBarProp "xmobar" (pure myPP)
--- >   xmonad =<< withEasySB mySB defToggleStrutsKey myConfig
+-- > mySB = statusBarProp "xmobar" (pure myPP)
+-- > main = xmonad . withEasySB mySB defToggleStrutsKey $ myConfig
 --
 -- Check "XMonad.Hooks.StatusBar" for more examples and an in depth
 -- explanation.
@@ -90,6 +97,9 @@ data PP = PP { ppCurrent :: WorkspaceId -> String
                -- ^ how to print tags of empty hidden workspaces
              , ppVisibleNoWindows :: Maybe (WorkspaceId -> String)
                -- ^ how to print tags of empty visible workspaces
+             , ppCurrentNoWindows :: Maybe (WorkspaceId -> String)
+               -- ^ how to print the tag of the currently focused
+               -- workspace if the workspace is empty
              , ppUrgent :: WorkspaceId -> String
                -- ^ format to be applied to tags of urgent workspaces.
              , ppRename :: String -> WindowSpace -> String
@@ -101,12 +111,11 @@ data PP = PP { ppCurrent :: WorkspaceId -> String
              , ppWsSep :: String
                -- ^ separator to use between workspace tags
              , ppTitle :: String -> String
-               -- ^ window title format for the focused window
-             , ppTitleUnfocused :: String -> String
-               -- ^ window title format for unfocused windows
+               -- ^ window title format for the focused window. To display
+               -- the titles of all windows—even unfocused ones—check
+               -- 'XMonad.Util.Loggers.logTitles'.
              , ppTitleSanitize :: String -> String
-              -- ^ escape / sanitizes input to 'ppTitle' and
-              --   'ppTitleUnfocused'
+              -- ^ escape / sanitizes input to 'ppTitle'
              , ppLayout :: String -> String
                -- ^ layout name format
              , ppOrder :: [String] -> [String]
@@ -135,7 +144,12 @@ data PP = PP { ppCurrent :: WorkspaceId -> String
                -- output it.  Can be used to specify an alternative
                -- output method (e.g. write to a pipe instead of
                -- stdout), and\/or to perform some last-minute
-               -- formatting.
+               -- formatting. Note that this is only used by
+               -- 'dynamicLogWithPP'; it won't work with 'dynamicLogString' or
+               -- "XMonad.Hooks.StatusBar".
+             , ppPrinters :: WSPP
+               -- ^ extend workspace types with custom predicates.
+               -- Check $predicates for more details.
              }
 
 -- | The default pretty printing options:
@@ -146,6 +160,7 @@ data PP = PP { ppCurrent :: WorkspaceId -> String
 -- workspace layout, and the title of the focused window.
 instance Default PP where
   def = PP { ppCurrent          = wrap "[" "]"
+           , ppCurrentNoWindows = Nothing
            , ppVisible          = wrap "<" ">"
            , ppHidden           = id
            , ppHiddenNoWindows  = const ""
@@ -155,13 +170,13 @@ instance Default PP where
            , ppSep              = " : "
            , ppWsSep            = " "
            , ppTitle            = shorten 80
-           , ppTitleUnfocused   = const ""
            , ppTitleSanitize    = xmobarStrip . dzenEscape
            , ppLayout           = id
            , ppOrder            = id
            , ppOutput           = putStrLn
            , ppSort             = getSortByIndex
            , ppExtras           = []
+           , ppPrinters         = empty
            }
 
 -- | Format the current status using the supplied pretty-printing format,
@@ -174,7 +189,14 @@ dynamicLogWithPP pp = dynamicLogString pp >>= io . ppOutput pp
 --   allow for further processing, or use in some application other than
 --   a status bar.
 dynamicLogString :: PP -> X String
-dynamicLogString pp = do
+dynamicLogString pp = userCodeDef "_|_" (dynamicLogString' pp)
+
+-- | The guts of 'dynamicLogString'. Forces the result, so it may throw
+--   an exception (most commonly because 'ppOrder' is non-total). Use
+--   'dynamicLogString' for a version that catches the exception and
+--   produces an error string.
+dynamicLogString' :: PP -> X String
+dynamicLogString' pp = do
 
     winset <- gets windowset
     urgents <- readUrgents
@@ -186,22 +208,16 @@ dynamicLogString pp = do
     -- workspace list
     let ws = pprWindowSet sort' urgents pp winset
 
-    -- window titles
-    let stack  = S.index winset
-        focWin = S.peek  winset
-        ppWin :: Window -> String -> String  -- pretty print a window title
-            = bool (ppTitleUnfocused pp) (ppTitle pp) . (focWin ==) . Just
-    winNames <- traverse (fmap show . getName) stack
-    let ppNames = unwords . filter (not . null) $
-            zipWith (\w n -> ppWin w $ ppTitleSanitize pp n) stack winNames
-
     -- run extra loggers, ignoring any that generate errors.
-    extras <- mapM (`catchX` return Nothing) $ ppExtras pp
+    extras <- mapM (userCodeDef Nothing) $ ppExtras pp
 
-    return $ sepBy (ppSep pp) . ppOrder pp $
+    -- window title
+    wt <- maybe (pure "") (fmap show . getName) . S.peek $ winset
+
+    return $! force $ sepBy (ppSep pp) . ppOrder pp $
                         [ ws
                         , ppLayout pp ld
-                        , ppNames
+                        , ppTitle  pp $ ppTitleSanitize pp wt
                         ]
                         ++ catMaybes extras
 
@@ -212,17 +228,135 @@ pprWindowSet :: WorkspaceSort -> [Window] -> PP -> WindowSet -> String
 pprWindowSet sort' urgents pp s = sepBy (ppWsSep pp) . map fmt . sort' $
             map S.workspace (S.current s : S.visible s) ++ S.hidden s
   where
-    this     = S.currentTag s
-    visibles = map (S.tag . S.workspace) (S.visible s)
-
-    fmt w = printer pp (ppRename pp (S.tag w) w)
+    fmt :: WindowSpace -> String
+    fmt w = pr (ppRename pp (S.tag w) w)
       where
-        printer | any (\x -> (== Just (S.tag w)) (S.findTag x s)) urgents = ppUrgent
-                | S.tag w == this                                         = ppCurrent
-                | S.tag w `elem` visibles && isJust (S.stack w)           = ppVisible
-                | S.tag w `elem` visibles                                 = liftA2 fromMaybe ppVisible ppVisibleNoWindows
-                | isJust (S.stack w)                                      = ppHidden
-                | otherwise                                               = ppHiddenNoWindows
+        printers = ppPrinters pp <|> fallbackPrinters
+        pr = fromMaybe id $ runReaderT printers $
+            WS{ wsUrgents = urgents, wsWindowSet = s, wsWS = w, wsPP = pp }
+
+-- $predicates
+-- Using 'WSPP' with 'ppPrinters' allows extension modules (and users) to
+-- extend 'PP' with new workspace types beyond 'ppCurrent', 'ppUrgent', and
+-- the rest.
+
+-- | The data available to 'WSPP''.
+data WS = WS{ wsUrgents :: [Window] -- ^ Urgent windows
+            , wsWindowSet :: WindowSet -- ^ The entire 'WindowSet', for context
+            , wsWS :: WindowSpace -- ^ The 'WindowSpace' being formatted
+            , wsPP :: PP -- ^ The actual final 'PP'
+            }
+
+-- XXX: ReaderT instead of -> because there is no
+--
+-- > instance Alternative (Λa. r -> Maybe a)
+--
+-- (there cannot be, Haskell has no Λ), and there is no
+--
+-- > instance Alternative (Compose ((->) r) Maybe)
+--
+-- either, and even if there was, Compose isn't very practical.
+--
+-- But we don't need Alternative for WS -> Bool, so we use the simple
+-- function-based reader for the condition functions, as their definitions are
+-- much prettier that way. This may be a bit confusing. :-/
+type WSPP' = ReaderT WS Maybe
+
+-- | The type allowing to build formatters (and predicates). See
+-- the source 'fallbackPrinters' for an example.
+type WSPP = WSPP' (WorkspaceId -> String)
+
+-- | For a 'PP' @pp@, @fallbackPrinters pp@ returns the default 'WSPP'
+-- used to format workspaces: the formatter chosen corresponds to the
+-- first matching workspace type, respecting the following precedence:
+-- 'ppUrgent', 'ppCurrent', 'ppVisible', 'ppVisibleNoWindows', 'ppHidden',
+-- 'ppHiddenNoWindows'.
+--
+-- This can be useful if one needs to use the default set of formatters and
+-- post-process their output. (For pre-processing their input, there's
+-- 'ppRename'.)
+fallbackPrinters :: WSPP
+fallbackPrinters = isUrgent             ?-> ppUrgent
+               <|> isCurrentHasWindows' ?-> ppCurrent
+               <|> isCurrentNoWindows'  ?-> liftA2 fromMaybe ppCurrent ppCurrentNoWindows
+               <|> isVisible'           ?-> ppVisible
+               <|> isVisibleNoWindows'  ?-> liftA2 fromMaybe ppVisible ppVisibleNoWindows
+               <|> isHidden'            ?-> ppHidden
+               <|> pure True            ?-> ppHiddenNoWindows
+  where
+    cond ?-> ppr = (asks cond >>= guard) *> asks (ppr . wsPP)
+
+-- | Predicate for urgent workspaces.
+isUrgent :: WS -> Bool
+isUrgent WS{..} = any (\x -> (== Just (S.tag wsWS)) (S.findTag x wsWindowSet)) wsUrgents
+
+-- | Predicate for the current workspace. Caution: assumes default
+-- precedence is respected.
+isCurrent' :: WS -> Bool
+isCurrent' WS{..} = S.tag wsWS == S.currentTag wsWindowSet
+
+-- | Predicate for the current workspace.
+isCurrent :: WS -> Bool
+isCurrent = (not <$> isUrgent) <&&> isCurrent'
+
+-- | Predicate for the current workspace with one or more windows.
+-- Caution: assumes default precedence is respected.
+isCurrentHasWindows' :: WS -> Bool
+isCurrentHasWindows' = isCurrent' <&&> hasWindows
+
+-- | Predicate for the current workspace with one or more windows.
+isCurrentHasWindows :: WS -> Bool
+isCurrentHasWindows = (not <$> isUrgent) <&&> isCurrentHasWindows'
+
+-- | Predicate for the current workspace with no windows. Caution:
+-- assumes default precedence is respected.
+isCurrentNoWindows' :: WS -> Bool
+isCurrentNoWindows' = isCurrent' <&&> (not <$> hasWindows)
+
+-- | Predicate for the current workspace with no windows.
+isCurrentNoWindows :: WS -> Bool
+isCurrentNoWindows = (not <$> isUrgent) <&&> isCurrentNoWindows'
+
+-- | Predicate for visible workspaces. Caution: assumes default
+-- precedence is respected.
+isVisible' :: WS -> Bool
+isVisible' = isVisibleNoWindows' <&&> hasWindows
+
+-- | Predicate for visible workspaces.
+isVisible :: WS -> Bool
+isVisible = (not <$> isUrgent) <&&> (not <$> isCurrent') <&&> isVisible'
+
+-- | Predicate for visible workspaces that have no windows. Caution:
+-- assumes default precedence is respected.
+isVisibleNoWindows' :: WS -> Bool
+isVisibleNoWindows' WS{..} = S.tag wsWS `elem` visibles
+  where visibles = map (S.tag . S.workspace) (S.visible wsWindowSet)
+
+-- | Predicate for visible workspaces that have no windows.
+isVisibleNoWindows :: WS -> Bool
+isVisibleNoWindows =
+    (not <$> isUrgent)
+        <&&> (not <$> isCurrentNoWindows')
+        <&&> (not <$> hasWindows)
+        <&&> isVisibleNoWindows'
+
+-- | Predicate for non-empty hidden workspaces. Caution: assumes default
+-- precedence is respected.
+isHidden' :: WS -> Bool
+isHidden' = hasWindows
+
+-- | Predicate for hidden workspaces.
+isHidden :: WS -> Bool
+isHidden =
+    (not <$> isUrgent)
+        <&&> (not <$> isCurrent')
+        <&&> (not <$> isVisible')
+        <&&> (not <$> isVisibleNoWindows')
+        <&&> isHidden'
+
+-- | Predicate for workspaces with windows.
+hasWindows :: WS -> Bool
+hasWindows = isJust . S.stack . wsWS
 
 pprWindowSetXinerama :: WindowSet -> String
 pprWindowSetXinerama ws = "[" ++ unwords onscreen ++ "] " ++ unwords offscreen
@@ -296,9 +430,15 @@ dzenStrip = strip [] where
     strip keep x
       | null x              = keep
       | "^^" `isPrefixOf` x = strip (keep ++ "^") (drop 2 x)
-      | '^' == head x       = strip keep (drop 1 . dropWhile (/= ')') $ x)
+      | "^"  `isPrefixOf` x = strip keep (drop 1 . dropWhile (/= ')') $ x)
       | otherwise           = let (good,x') = span (/= '^') x
                               in strip (keep ++ good) x'
+
+-- | Use xmobar escape codes to output a string with the font at the given index
+xmobarFont :: Int     -- ^ index: index of the font to use (0: standard font)
+           -> String  -- ^ output string
+           -> String
+xmobarFont index = wrap ("<fn=" ++ show index ++ ">") "</fn>"
 
 -- | Use xmobar escape codes to output a string with given foreground
 --   and background colors.
@@ -346,17 +486,21 @@ xmobarRaw :: String -> String
 xmobarRaw "" = ""
 xmobarRaw s  = concat ["<raw=", show $ length s, ":", s, "/>"]
 
--- | Strip xmobar markup, specifically the <fc>, <icon> and <action> tags and
--- the matching tags like </fc>.
+-- | Strip xmobar markup, specifically the \<fc\>, \<icon\> and \<action\> tags
+-- and the matching tags like \</fc\>.
 xmobarStrip :: String -> String
 xmobarStrip = converge (xmobarStripTags ["fc","icon","action"])
 
 converge :: (Eq a) => (a -> a) -> a -> a
-converge f a = let xs = iterate f a
-    in fst $ head $ dropWhile (uncurry (/=)) $ zip xs $ tail xs
+converge f a
+  = fst . NE.head . notEmpty -- If this function terminates, we will find a match.
+  . dropWhile (uncurry (/=))
+  . zip xs
+  $ drop 1 xs
+ where xs = iterate f a
 
 xmobarStripTags :: [String] -- ^ tags
-        -> String -> String -- ^ with all <tag>...</tag> removed
+        -> String -> String -- ^ with all \<tag\>...\</tag\> removed
 xmobarStripTags tags = strip [] where
     strip keep [] = keep
     strip keep x

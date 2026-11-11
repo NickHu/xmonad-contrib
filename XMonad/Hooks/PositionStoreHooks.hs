@@ -1,6 +1,7 @@
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Hooks.PositionStoreHooks
+-- Description :  Hooks for XMonad.Util.PositionStore.
 -- Copyright   :  (c) Jan Vornberger 2009
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -34,19 +35,17 @@ module XMonad.Hooks.PositionStoreHooks (
     ) where
 
 import XMonad
+import XMonad.Prelude
 import qualified XMonad.StackSet as W
 import XMonad.Util.PositionStore
 import XMonad.Hooks.ManageDocks
 import XMonad.Layout.Decoration
 
 import System.Random(randomRIO)
-import Control.Monad(when)
-import Data.Maybe
-import Data.Monoid
 import qualified Data.Set as S
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Hooks.PositionStoreHooks
 --
@@ -57,7 +56,7 @@ import qualified Data.Set as S
 -- otherwise use 'Just def' or similar to inform the module about the
 -- decoration theme used.
 --
--- > myManageHook = positionStoreManageHook Nothing <+> manageHook def
+-- > myManageHook = positionStoreManageHook Nothing <> manageHook def
 -- > myHandleEventHook = positionStoreEventHook
 -- >
 -- > main = xmonad def { manageHook = myManageHook
@@ -69,10 +68,9 @@ positionStoreManageHook :: Maybe Theme -> ManageHook
 positionStoreManageHook mDecoTheme = ask >>= liftX . positionStoreInit mDecoTheme >> idHook
 
 positionStoreInit :: Maybe Theme -> Window -> X ()
-positionStoreInit mDecoTheme w  = withDisplay $ \d -> do
+positionStoreInit mDecoTheme w  = withDisplay $ \d -> withWindowAttributes d w $ \wa -> do
         let decoH = maybe 0 decoHeight mDecoTheme   -- take decoration into account, which - in its current
                                                     -- form - makes windows smaller to make room for it
-        wa <- io $ getWindowAttributes d w
         ws <- gets windowset
         arbitraryOffsetX <- randomIntOffset
         arbitraryOffsetY <- randomIntOffset
@@ -94,12 +92,12 @@ positionStoreInit mDecoTheme w  = withDisplay $ \d -> do
                                         (Rectangle (fi $ wa_x wa) (fi (wa_y wa) - fi decoH)
                                             (fi $ wa_width wa) (decoH + fi (wa_height wa))) sr' )
     where
-        randomIntOffset :: X (Int)
+        randomIntOffset :: X Int
         randomIntOffset = io $ randomRIO (42, 242)
 
 positionStoreEventHook :: Event -> X All
-positionStoreEventHook (DestroyWindowEvent {ev_window = w, ev_event_type = et}) = do
+positionStoreEventHook DestroyWindowEvent{ev_window = w, ev_event_type = et} = do
     when (et == destroyNotify) $
-        modifyPosStore (\ps -> posStoreRemove ps w)
+        modifyPosStore (`posStoreRemove` w)
     return (All True)
 positionStoreEventHook _ = return (All True)

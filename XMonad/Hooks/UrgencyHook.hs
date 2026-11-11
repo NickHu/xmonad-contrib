@@ -1,9 +1,9 @@
-{-# LANGUAGE FlexibleContexts, MultiParamTypeClasses, TypeSynonymInstances, PatternGuards, DeriveDataTypeable,
-  FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts, MultiParamTypeClasses, FlexibleInstances #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Hooks.UrgencyHook
+-- Description :  Configure an action to occur when a window demands your attention.
 -- Copyright   :  Devin Mullins <me@twifkak.com>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -60,6 +60,7 @@ module XMonad.Hooks.UrgencyHook (
                                  FocusHook(..),
                                  filterUrgencyHook, filterUrgencyHook',
                                  minutes, seconds,
+                                 askUrgent, doAskUrgent,
                                  -- * Stuff for developers:
                                  readUrgents, withUrgents, clearUrgents',
                                  StdoutUrgencyHook(..),
@@ -70,6 +71,7 @@ module XMonad.Hooks.UrgencyHook (
                                  ) where
 
 import XMonad
+import XMonad.Prelude (fi, delete, fromMaybe, listToMaybe, maybeToList, when, (\\))
 import qualified XMonad.StackSet as W
 
 import XMonad.Hooks.ManageHelpers (windowTag)
@@ -79,10 +81,7 @@ import XMonad.Util.NamedWindows (getName)
 import XMonad.Util.Timer (TimerId, startTimer, handleTimer)
 import XMonad.Util.WindowProperties (getProp32)
 
-import Control.Monad (when)
 import Data.Bits (testBit)
-import Data.List (delete, (\\))
-import Data.Maybe (listToMaybe, maybeToList, fromMaybe)
 import qualified Data.Set as S
 import System.IO (hPutStrLn, stderr)
 import Foreign.C.Types (CLong)
@@ -118,10 +117,10 @@ import Foreign.C.Types (CLong)
 -- > main = xmonad $ withUrgencyHook NoUrgencyHook
 -- >               $ def
 --
--- Now, your "XMonad.Hooks.DynamicLog" must be set up to display the urgent
--- windows. If you're using the 'dzen' or 'dzenPP' functions from that module,
--- then you should be good. Otherwise, you want to figure out how to set
--- 'ppUrgent'.
+-- Now, your "XMonad.Hooks.StatusBar.PP" must be set up to display the urgent
+-- windows. If you're using the 'dzen' (from "XMonad.Hooks.DynamicLog") or
+-- 'dzenPP' functions from that module, then you should be good. Otherwise,
+-- you want to figure out how to set 'ppUrgent'.
 
 -- $keybinding
 --
@@ -198,11 +197,11 @@ import Foreign.C.Types (CLong)
 -- instead.
 withUrgencyHook :: (LayoutClass l Window, UrgencyHook h) =>
                    h -> XConfig l -> XConfig l
-withUrgencyHook hook conf = withUrgencyHookC hook urgencyConfig conf
+withUrgencyHook hook = withUrgencyHookC hook def
 
 -- | This lets you modify the defaults set in 'urgencyConfig'. An example:
 --
--- > withUrgencyHookC dzenUrgencyHook { ... } urgencyConfig { suppressWhen = Focused }
+-- > withUrgencyHookC dzenUrgencyHook { ... } def { suppressWhen = Focused }
 --
 -- (Don't type the @...@, you dolt.) See 'UrgencyConfig' for details on configuration.
 withUrgencyHookC :: (LayoutClass l Window, UrgencyHook h) =>
@@ -213,7 +212,7 @@ withUrgencyHookC hook urgConf conf = conf {
         startupHook = cleanupStaleUrgents >> startupHook conf
     }
 
-data Urgents = Urgents { fromUrgents :: [Window] } deriving (Read,Show,Typeable)
+newtype Urgents = Urgents { fromUrgents :: [Window] } deriving (Read,Show)
 
 onUrgents :: ([Window] -> [Window]) -> Urgents -> Urgents
 onUrgents f = Urgents . f . fromUrgents
@@ -243,19 +242,24 @@ data SuppressWhen = Visible  -- ^ the window is currently visible
 --
 -- The interval arguments are in seconds. See the 'minutes' helper.
 data RemindWhen = Dont                    -- ^ triggering once is enough
-                | Repeatedly Int Interval -- ^ repeat <arg1> times every <arg2> seconds
-                | Every Interval          -- ^ repeat every <arg1> until the urgency hint is cleared
+                | Repeatedly Int Interval -- ^ repeat \<arg1\> times every \<arg2\> seconds
+                | Every Interval          -- ^ repeat every \<arg1\> until the urgency hint is cleared
                 deriving (Read, Show)
 
 -- | A prettified way of multiplying by 60. Use like: @(5 `minutes`)@.
 minutes :: Rational -> Rational
 minutes secs = secs * 60
 
--- | The default 'UrgencyConfig'. suppressWhen = Visible, remindWhen = Dont.
--- Use a variation of this in your config just as you use a variation of
--- 'def' for your xmonad definition.
+-- | The default 'UrgencyConfig': @urgencyConfig = 'def'@.
 urgencyConfig :: UrgencyConfig
-urgencyConfig = UrgencyConfig { suppressWhen = Visible, remindWhen = Dont }
+urgencyConfig = def
+{-# DEPRECATED urgencyConfig "Use def insetad." #-}
+
+-- | The default 'UrgencyConfig': @suppressWhen = 'Visible', remindWhen = 'Dont'@.
+-- Use a variation of this in your config just as you would use any
+-- other instance of 'def'.
+instance Default UrgencyConfig where
+  def = UrgencyConfig { suppressWhen = Visible, remindWhen = Dont }
 
 -- | Focuses the most recently urgent window. Good for what ails ya -- I mean, your keybindings.
 -- Example keybinding:
@@ -285,7 +289,7 @@ withUrgents f = readUrgents >>= f
 cleanupStaleUrgents :: X ()
 cleanupStaleUrgents = withWindowSet $ \ws -> do
     adjustUrgents (filter (`W.member` ws))
-    adjustReminders (filter $ ((`W.member` ws) . window))
+    adjustReminders (filter ((`W.member` ws) . window))
 
 adjustUrgents :: ([Window] -> [Window]) -> X ()
 adjustUrgents = XS.modify . onUrgents
@@ -298,7 +302,7 @@ data Reminder = Reminder { timer     :: TimerId
                          , window    :: Window
                          , interval  :: Interval
                          , remaining :: Maybe Int
-                         } deriving (Show,Read,Eq,Typeable)
+                         } deriving (Show,Read,Eq)
 
 instance ExtensionClass [Reminder] where
     initialValue = []
@@ -326,7 +330,7 @@ changeNetWMState dpy w f = do
 
 -- | Add an atom to the _NET_WM_STATE property.
 addNetWMState :: Display -> Window -> Atom -> X ()
-addNetWMState dpy w atom = changeNetWMState dpy w $ ((fromIntegral atom):)
+addNetWMState dpy w atom = changeNetWMState dpy w (fromIntegral atom :)
 
 -- | Remove an atom from the _NET_WM_STATE property.
 removeNetWMState :: Display -> Window -> Atom -> X ()
@@ -358,7 +362,7 @@ handleEvent wuh event =
       PropertyEvent { ev_event_type = t, ev_atom = a, ev_window = w } ->
           when (t == propertyNotify && a == wM_HINTS) $ withDisplay $ \dpy -> do
               WMHints { wmh_flags = flags } <- io $ getWMHints dpy w
-              if (testBit flags urgencyHintBit) then markUrgent w else markNotUrgent w
+              if testBit flags urgencyHintBit then markUrgent w else markNotUrgent w
       -- Window destroyed
       DestroyWindowEvent {ev_window = w} ->
           markNotUrgent w
@@ -382,7 +386,7 @@ handleEvent wuh event =
           mapM_ handleReminder =<< readReminders
       where handleReminder reminder = handleTimer (timer reminder) event $ reminderHook wuh reminder
             markUrgent w = do
-                adjustUrgents (\ws -> if elem w ws then ws else w : ws)
+                adjustUrgents (\ws -> if w `elem` ws then ws else w : ws)
                 callUrgencyHook wuh w
                 userCodeDef () =<< asks (logHook . config)
             markNotUrgent w = do
@@ -425,9 +429,9 @@ cleanupUrgents sw = clearUrgents' =<< suppressibleWindows sw
 clearUrgents' :: [Window] -> X ()
 clearUrgents' ws = do
     a_da <- getAtom "_NET_WM_STATE_DEMANDS_ATTENTION"
-    dpy <- withDisplay (\dpy -> return dpy)
+    dpy <- withDisplay return
     mapM_ (\w -> removeNetWMState dpy w a_da) ws
-    adjustUrgents (\\ ws) >> adjustReminders (filter $ ((`notElem` ws) . window))
+    adjustUrgents (\\ ws) >> adjustReminders (filter ((`notElem` ws) . window))
 
 suppressibleWindows :: SuppressWhen -> X [Window]
 suppressibleWindows Visible  = gets $ S.toList . mapped
@@ -493,7 +497,7 @@ instance UrgencyHook FocusHook where
 
 borderUrgencyHook :: String -> Window -> X ()
 borderUrgencyHook = urgencyHook . BorderUrgencyHook
-data BorderUrgencyHook = BorderUrgencyHook { urgencyBorderColor :: !String }
+newtype BorderUrgencyHook = BorderUrgencyHook { urgencyBorderColor :: String }
                        deriving (Read, Show)
 
 instance UrgencyHook BorderUrgencyHook where
@@ -511,11 +515,15 @@ instance UrgencyHook BorderUrgencyHook where
 -- Defaults to a duration of five seconds, and no extra args to dzen.
 -- See 'DzenUrgencyHook'.
 dzenUrgencyHook :: DzenUrgencyHook
-dzenUrgencyHook = DzenUrgencyHook { duration = seconds 5, args = [] }
+dzenUrgencyHook = def
+
+-- | @'def' = 'dzenUrgencyHook'@.
+instance Default DzenUrgencyHook where
+  def = DzenUrgencyHook { duration = seconds 5, args = [] }
 
 -- | Spawn a commandline thing, appending the window id to the prefix string
 -- you provide. (Make sure to add a space if you need it.) Do your crazy
--- xcompmgr thing.
+-- xcompmgr/compositor thing.
 spawnUrgencyHook :: String -> Window -> X ()
 spawnUrgencyHook = urgencyHook . SpawnUrgencyHook
 newtype SpawnUrgencyHook = SpawnUrgencyHook String deriving (Read, Show)
@@ -544,3 +552,28 @@ filterUrgencyHook skips = filterUrgencyHook' $ maybe False (`elem` skips) <$> wi
 -- should never be marked urgent.
 filterUrgencyHook' :: Query Bool -> Window -> X ()
 filterUrgencyHook' q w = whenX (runQuery q w) (clearUrgents' [w])
+
+-- | Mark the given window urgent.
+--
+-- (The implementation is a bit hacky: send a _NET_WM_STATE ClientMessage to
+-- ourselves. This is so that we respect the 'SuppressWhen' of the configured
+-- urgency hooks. If this module if ever migrated to the ExtensibleConf
+-- infrastrcture, we'll then invoke markUrgent directly.)
+askUrgent :: Window -> X ()
+askUrgent w = withDisplay $ \dpy -> do
+    rw <- asks theRoot
+    a_wmstate <- getAtom "_NET_WM_STATE"
+    a_da      <- getAtom "_NET_WM_STATE_DEMANDS_ATTENTION"
+    let state_add = 1
+    let source_pager = 2
+    io $ allocaXEvent $ \e -> do
+        setEventType e clientMessage
+        setClientMessageEvent' e w a_wmstate 32 [state_add, fi a_da, 0, source_pager]
+        sendEvent dpy rw False (substructureRedirectMask .|. substructureNotifyMask) e
+
+-- | Helper for 'ManageHook' that marks the window as urgent (unless
+-- suppressed, see 'SuppressWhen'). Useful in
+-- 'XMonad.Hooks.EwmhDesktops.setEwmhActivateHook' and also in combination
+-- with "XMonad.Hooks.InsertPosition", "XMonad.Hooks.Focus".
+doAskUrgent :: ManageHook
+doAskUrgent = ask >>= \w -> liftX (askUrgent w) >> mempty

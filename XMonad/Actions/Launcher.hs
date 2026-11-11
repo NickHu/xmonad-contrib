@@ -1,5 +1,6 @@
 {- |
 Module      :  XMonad.Actions.Launcher
+Description :  A set of prompts for XMonad.
 Copyright   :  (C) 2012 Carlos López-Camey
 License     :  None; public domain
 
@@ -18,10 +19,9 @@ module XMonad.Actions.Launcher(
   , launcherPrompt
 ) where
 
-import           Data.List       (find, findIndex, isPrefixOf, tails)
 import qualified Data.Map        as M
-import           Data.Maybe      (isJust)
 import           XMonad          hiding (config)
+import           XMonad.Prelude
 import           XMonad.Prompt
 import           XMonad.Util.Run
 
@@ -62,7 +62,7 @@ type ExtensionActions = M.Map String (String -> X())
 instance XPrompt CalculatorMode where
   showXPrompt CalcMode = "calc %s> "
   commandToComplete CalcMode = id --send the whole string to `calc`
-  completionFunction CalcMode = \s -> if (length s == 0) then return [] else
+  completionFunction CalcMode s = if null s then return [] else
     lines <$> runProcessWithInput "calc" [s] ""
   modeAction CalcMode _ _ = return () -- do nothing; this might copy the result to the clipboard
 
@@ -70,7 +70,7 @@ instance XPrompt CalculatorMode where
 instance XPrompt HoogleMode where
   showXPrompt _ = "hoogle %s> "
   commandToComplete _ = id
-  completionFunction (HMode pathToHoogleBin' _) = \s -> completionFunctionWith pathToHoogleBin' ["--count","8",s]
+  completionFunction (HMode pathToHoogleBin' _) s = completionFunctionWith pathToHoogleBin' ["--count","8",s]
   -- This action calls hoogle again to find the URL corresponding to the autocompleted item
   modeAction (HMode pathToHoogleBin'' browser') query result = do
     completionsWithLink <- liftIO $ completionFunctionWith pathToHoogleBin'' ["--count","5","--link",query]

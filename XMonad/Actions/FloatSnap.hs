@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.FloatSnap
+-- Description :  Snap to other windows or the edge of the screen while moving or resizing.
 -- Copyright   :  (c) 2009 Anders Engstrom <ankaan@gmail.com>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -27,8 +28,7 @@ module XMonad.Actions.FloatSnap (
                 ifClick') where
 
 import XMonad
-import Data.List (sort)
-import Data.Maybe (listToMaybe,fromJust,isNothing)
+import XMonad.Prelude (fromJust, isNothing, listToMaybe, sort, when)
 import qualified XMonad.StackSet as W
 import qualified Data.Set as S
 
@@ -37,7 +37,7 @@ import XMonad.Util.Types (Direction2D(..))
 import XMonad.Actions.AfterDrag
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- >    import XMonad.Actions.FloatSnap
 --
@@ -53,7 +53,7 @@ import XMonad.Actions.AfterDrag
 -- >        , ((modm .|. shiftMask, xK_Down),  withFocused $ snapGrow D Nothing)
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 --
 -- And possibly add appropriate mouse bindings, for example:
 --
@@ -92,17 +92,17 @@ snapMagicMouseResize
     -> Maybe Int -- ^ The maximum distance to snap. Use Nothing to not impose any boundary.
     -> Window    -- ^ The window to move and resize.
     -> X ()
-snapMagicMouseResize middle collidedist snapdist w = whenX (isClient w) $ withDisplay $ \d -> do
-    wa <- io $ getWindowAttributes d w
+snapMagicMouseResize middle collidedist snapdist w = whenX (isClient w) $ withDisplay $ \d ->
+  withWindowAttributes d w $ \wa -> do
     (_, _, _, px, py, _, _, _) <- io $ queryPointer d w
-    let x = (fromIntegral px - wx wa)/(ww wa)
-        y = (fromIntegral py - wy wa)/(wh wa)
-        ml = if x <= (0.5 - middle/2) then [L] else []
-        mr = if x >  (0.5 + middle/2) then [R] else []
-        mu = if y <= (0.5 - middle/2) then [U] else []
-        md = if y >  (0.5 + middle/2) then [D] else []
+    let x = (fromIntegral px - wx wa)/ww wa
+        y = (fromIntegral py - wy wa)/wh wa
+        ml = [L | x <= (0.5 - middle/2)]
+        mr = [R | x >  (0.5 + middle/2)]
+        mu = [U | y <= (0.5 - middle/2)]
+        md = [D | y >  (0.5 + middle/2)]
         mdir = ml++mr++mu++md
-        dir = if mdir == []
+        dir = if null mdir
               then [L,R,U,D]
               else mdir
     snapMagicResize dir collidedist snapdist w
@@ -119,18 +119,17 @@ snapMagicResize
     -> Maybe Int   -- ^ The maximum distance to snap. Use Nothing to not impose any boundary.
     -> Window      -- ^ The window to move and resize.
     -> X ()
-snapMagicResize dir collidedist snapdist w = whenX (isClient w) $ withDisplay $ \d -> do
-    wa <- io $ getWindowAttributes d w
-
+snapMagicResize dir collidedist snapdist w = whenX (isClient w) $ withDisplay $ \d ->
+  withWindowAttributes d w $ \wa -> do
     (xbegin,xend) <- handleAxis True d wa
     (ybegin,yend) <- handleAxis False d wa
 
-    let xbegin' = if L `elem` dir then xbegin else (wx wa)
-        xend'   = if R `elem` dir then xend   else (wx wa + ww wa)
-        ybegin' = if U `elem` dir then ybegin else (wy wa)
-        yend'   = if D `elem` dir then yend   else (wy wa + wh wa)
+    let xbegin' = if L `elem` dir then xbegin else wx wa
+        xend'   = if R `elem` dir then xend   else wx wa + ww wa
+        ybegin' = if U `elem` dir then ybegin else wy wa
+        yend'   = if D `elem` dir then yend   else wy wa + wh wa
 
-    io $ moveWindow d w (fromIntegral $ xbegin') (fromIntegral $ ybegin')
+    io $ moveWindow d w (fromIntegral xbegin') (fromIntegral ybegin')
     io $ resizeWindow d w (fromIntegral $ xend' - xbegin') (fromIntegral $ yend' - ybegin')
     float w
     where
@@ -150,13 +149,13 @@ snapMagicResize dir collidedist snapdist w = whenX (isClient w) $ withDisplay $ 
                             (Nothing,Nothing) -> wpos wa
                 end = if fs
                       then wpos wa + wdim wa
-                      else case (if mfl==(Just begin) then Nothing else mfl,mfr) of
+                      else case (if mfl==Just begin then Nothing else mfl,mfr) of
                           (Just fl,Just fr) -> if wpos wa + wdim wa - fl < fr - wpos wa - wdim wa then fl else fr
                           (Just fl,Nothing) -> fl
                           (Nothing,Just fr) -> fr
                           (Nothing,Nothing) -> wpos wa + wdim wa
-                begin' = if isNothing snapdist || abs (begin - wpos wa) <= fromJust snapdist then begin else (wpos wa)
-                end' = if isNothing snapdist || abs (end - wpos wa - wdim wa) <= fromJust snapdist then end else (wpos wa + wdim wa)
+                begin' = if isNothing snapdist || abs (begin - wpos wa) <= fromJust snapdist then begin else wpos wa
+                end' = if isNothing snapdist || abs (end - wpos wa - wdim wa) <= fromJust snapdist then end else wpos wa + wdim wa
             return (begin',end')
             where
                 (wpos, wdim, _, _) = constructors horiz
@@ -168,9 +167,8 @@ snapMagicMove
     -> Maybe Int -- ^ The maximum distance to snap. Use Nothing to not impose any boundary.
     -> Window    -- ^ The window to move.
     -> X ()
-snapMagicMove collidedist snapdist w = whenX (isClient w) $ withDisplay $ \d -> do
-    wa <- io $ getWindowAttributes d w
-
+snapMagicMove collidedist snapdist w = whenX (isClient w) $ withDisplay $ \d ->
+  withWindowAttributes d w $ \wa -> do
     nx <- handleAxis True d wa
     ny <- handleAxis False d wa
 
@@ -191,8 +189,8 @@ snapMagicMove collidedist snapdist w = whenX (isClient w) $ withDisplay $ \d -> 
                                     (Just fl,Nothing) -> fl
                                     (Nothing,Just fr) -> fr
                                     (Nothing,Nothing) -> wpos wa
-                              newpos = if abs (b - wpos wa) <= abs (f - wpos wa - wdim wa) then b else (f - wdim wa)
-                          in if isNothing snapdist || abs (newpos - wpos wa) <= fromJust snapdist then newpos else (wpos wa)
+                              newpos = if abs (b - wpos wa) <= abs (f - wpos wa - wdim wa) then b else f - wdim wa
+                          in if isNothing snapdist || abs (newpos - wpos wa) <= fromJust snapdist then newpos else wpos wa
             where
                 (wpos, wdim, _, _) = constructors horiz
 
@@ -208,8 +206,8 @@ snapMove U = doSnapMove False True
 snapMove D = doSnapMove False False
 
 doSnapMove :: Bool -> Bool -> Maybe Int -> Window -> X ()
-doSnapMove horiz rev collidedist w = whenX (isClient w) $ withDisplay $ \d -> do
-    wa <- io $ getWindowAttributes d w
+doSnapMove horiz rev collidedist w = whenX (isClient w) $ withDisplay $ \d ->
+  withWindowAttributes d w $ \wa -> do
     ((bl,br,_),(fl,fr,_)) <- getSnap horiz collidedist d w
 
     let (mb,mf) = if rev then (bl,fl)
@@ -247,8 +245,8 @@ snapShrink
 snapShrink = snapResize False
 
 snapResize :: Bool -> Direction2D -> Maybe Int -> Window -> X ()
-snapResize grow dir collidedist w = whenX (isClient w) $ withDisplay $ \d -> do
-    wa <- io $ getWindowAttributes d w
+snapResize grow dir collidedist w = whenX (isClient w) $ withDisplay $ \d ->
+  withWindowAttributes d w $ \wa -> do
     mr <- case dir of
               L -> do ((mg,ms,_),(_,_,_)) <- getSnap True collidedist d w
                       return $ case (if grow then mg else ms) of
@@ -269,9 +267,8 @@ snapResize grow dir collidedist w = whenX (isClient w) $ withDisplay $ \d -> do
 
     case mr of
         Nothing -> return ()
-        Just (nx,ny,nw,nh) -> if nw>0 && nh>0 then do io $ moveWindow d w (fromIntegral nx) (fromIntegral ny)
-                                                      io $ resizeWindow d w (fromIntegral nw) (fromIntegral nh)
-                                              else return ()
+        Just (nx,ny,nw,nh) -> when (nw>0 && nh>0) $ do io $ moveWindow d w (fromIntegral nx) (fromIntegral ny)
+                                                       io $ resizeWindow d w (fromIntegral nw) (fromIntegral nh)
     float w
     where
         wx = fromIntegral.wa_x
@@ -286,8 +283,8 @@ getSnap horiz collidedist d w = do
     screen <- W.current <$> gets windowset
     let sr = screenRect $ W.screenDetail screen
         wl = W.integrate' . W.stack $ W.workspace screen
-    gr <- ($sr) <$> calcGap (S.fromList [minBound .. maxBound])
-    wla <- filter (collides wa) <$> (io $ mapM (getWindowAttributes d) $ filter (/=w) wl)
+    gr <- ($ sr) <$> calcGap (S.fromList [minBound .. maxBound])
+    wla <- filter (collides wa) <$> io (mapM (getWindowAttributes d) $ filter (/=w) wl)
 
     return ( neighbours (back wa sr gr wla) (wpos wa)
            , neighbours (front wa sr gr wla) (wpos wa + wdim wa)
@@ -301,8 +298,8 @@ getSnap horiz collidedist d w = do
 
         back wa sr gr wla = dropWhile (< rpos sr) $
                             takeWhile (< rpos sr + rdim sr) $
-                            sort $ (rpos sr):(rpos gr):(rpos gr + rdim gr):
-                                   foldr (\a as -> (wpos a):(wpos a + wdim a + wborder a + wborder wa):as) [] wla
+                            sort $ rpos sr:rpos gr:(rpos gr + rdim gr):
+                                   foldr (\a as -> wpos a:(wpos a + wdim a + wborder a + wborder wa):as) [] wla
 
         front wa sr gr wla = dropWhile (<= rpos sr) $
                              takeWhile (<= rpos sr + rdim sr) $
@@ -316,8 +313,8 @@ getSnap horiz collidedist d w = do
 
         collides wa oa = case collidedist of
                              Nothing -> True
-                             Just dist -> (  refwpos oa - wborder oa < refwpos wa + refwdim wa + wborder wa + dist
-                                          && refwpos wa - wborder wa - dist < refwpos oa + refwdim oa + wborder oa )
+                             Just dist -> refwpos oa - wborder oa < refwpos wa + refwdim wa + wborder wa + dist
+                                       && refwpos wa - wborder wa - dist < refwpos oa + refwdim oa + wborder oa
 
 
 constructors :: Bool -> (WindowAttributes -> Int, WindowAttributes -> Int, Rectangle -> Int, Rectangle -> Int)

@@ -1,28 +1,30 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Actions.WithAll
+-- Description  : Perform a given action on all or certain groups of windows.
 -- License      : BSD3-style (see LICENSE)
 -- Stability    : unstable
 -- Portability  : unportable
 --
--- Provides functions for performing a given action on all windows of
--- the current workspace.
+-- Provides functions for performing a given action on all or certain
+-- groups of windows on the current workspace.
 -----------------------------------------------------------------------------
 
 module XMonad.Actions.WithAll (
     -- * Usage
     -- $usage
     sinkAll, withAll,
-    withAll', killAll) where
+    withAll', killAll,
+    killOthers) where
 
-import Data.Foldable hiding (foldr)
+import XMonad.Prelude hiding (foldr)
 
 import XMonad
 import XMonad.StackSet
 
 -- $usage
 --
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Actions.WithAll
 --
@@ -31,7 +33,7 @@ import XMonad.StackSet
 --     , ((modm .|. shiftMask, xK_t), sinkAll)
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 -- | Un-float all floating windows on the current workspace.
 sinkAll :: X ()
@@ -50,3 +52,7 @@ withAll f = withWindowSet $ \ws -> let all' = integrate' . stack . workspace . c
 -- | Kill all the windows on the current workspace.
 killAll :: X()
 killAll = withAll killWindow
+
+-- | Kill all the unfocused windows on the current workspace.
+killOthers :: X ()
+killOthers = withUnfocused killWindow

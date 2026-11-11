@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleInstances, MultiParamTypeClasses, TypeSynonymInstances, PatternGuards #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, PatternGuards #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.WorkspaceDir
+-- Description :  A layout modifier to set the current directory in a workspace.
 -- Copyright   :  (c) 2007  David Roundy <droundy@darcs.net>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -31,7 +32,7 @@ module XMonad.Layout.WorkspaceDir (
                                   ) where
 
 import System.Directory ( setCurrentDirectory, getCurrentDirectory )
-import Control.Monad ( when )
+import XMonad.Prelude ( when )
 
 import XMonad hiding ( focus )
 import XMonad.Prompt ( XPConfig )
@@ -40,7 +41,7 @@ import XMonad.Layout.LayoutModifier
 import XMonad.StackSet ( tag, currentTag )
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.WorkspaceDir
 --
@@ -50,9 +51,9 @@ import XMonad.StackSet ( tag, currentTag )
 -- > myLayout = workspaceDir "~" (Tall 1 (3/100) (1/2))  ||| Full ||| etc..
 -- > main = xmonad def { layoutHook = myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 --
 -- WorkspaceDir provides also a prompt. To use it you need to import
 -- "XMonad.Prompt" and add something like this to your key bindings:
@@ -66,12 +67,12 @@ import XMonad.StackSet ( tag, currentTag )
 --
 -- For detailed instruction on editing the key binding see:
 --
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
-data Chdir = Chdir String deriving ( Typeable )
+newtype Chdir = Chdir String
 instance Message Chdir
 
-data WorkspaceDir a = WorkspaceDir String deriving ( Read, Show )
+newtype WorkspaceDir a = WorkspaceDir String deriving ( Read, Show )
 
 instance LayoutModifier WorkspaceDir Window where
     modifyLayout (WorkspaceDir d) w r = do tc <- gets (currentTag.windowset)

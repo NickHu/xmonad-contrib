@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.ConstrainedResize
+-- Description :  Constrain the aspect ratio of a floating window.
 -- Copyright   :  (c) Dougal Stanton
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -25,7 +26,7 @@ import XMonad
 
 -- $usage
 --
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import qualified XMonad.Actions.ConstrainedResize as Sqr
 --
@@ -43,8 +44,8 @@ import XMonad
 
 -- | Resize (floating) window with optional aspect ratio constraints.
 mouseResizeWindow :: Window -> Bool -> X ()
-mouseResizeWindow w c = whenX (isClient w) $ withDisplay $ \d -> do
-    wa <- io $ getWindowAttributes d w
+mouseResizeWindow w c = whenX (isClient w) $ withDisplay $ \d ->
+  withWindowAttributes d w $ \wa -> do
     sh <- io $ getWMNormalHints d w
     io $ warpPointer d none w 0 0 0 0 (fromIntegral (wa_width wa)) (fromIntegral (wa_height wa))
     mouseDrag (\ex ey -> do

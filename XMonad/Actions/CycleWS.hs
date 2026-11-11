@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.CycleWS
+-- Description :  Cycle through workspaces.
 -- Copyright   :  (c) Joachim Breitner <mail@joachim-breitner.de>,
 --                    Nelson Elhage <nelhage@mit.edu> (`toggleWS' function)
 -- License     :  BSD3-style (see LICENSE)
@@ -18,13 +19,13 @@
 --
 -- Note that this module now subsumes the functionality of the former
 -- @XMonad.Actions.RotView@.  Former users of @rotView@ can simply replace
--- @rotView True@ with @moveTo Next NonEmptyWS@, and so on.
+-- @rotView True@ with @moveTo Next (Not emptyWS)@, and so on.
 --
 -- If you want to exactly replicate the action of @rotView@ (cycling
 -- through workspace in order lexicographically by tag, instead of in
 -- the order specified in the config), it can be implemented as:
 --
--- > rotView b  = do t <- findWorkspace getSortByTag (bToDir b) NonEmptyWS 1
+-- > rotView b  = do t <- findWorkspace getSortByTag (bToDir b) (Not emptyWS) 1
 -- >                 windows . greedyView $ t
 -- >   where bToDir True  = Next
 -- >         bToDir False = Prev
@@ -63,6 +64,11 @@ module XMonad.Actions.CycleWS (
 
                               , Direction1D(..)
                               , WSType(..)
+                              , emptyWS
+                              , hiddenWS
+                              , anyWS
+                              , wsTagGroup
+                              , ignoringWSs
 
                               , shiftTo
                               , moveTo
@@ -78,9 +84,7 @@ module XMonad.Actions.CycleWS (
 
                              ) where
 
-import Data.List ( find, findIndex )
-import Data.Maybe ( isNothing, isJust )
-
+import XMonad.Prelude (find, findIndex, isJust, isNothing, liftM2)
 import XMonad hiding (workspaces)
 import qualified XMonad.Hooks.WorkspaceHistory as WH
 import XMonad.StackSet hiding (filter)
@@ -88,7 +92,7 @@ import XMonad.Util.Types
 import XMonad.Util.WorkspaceCompare
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@ file:
+-- You can use this module with the following in your @xmonad.hs@ file:
 --
 -- > import XMonad.Actions.CycleWS
 -- >
@@ -112,13 +116,13 @@ import XMonad.Util.WorkspaceCompare
 -- You can also get fancier with 'moveTo', 'shiftTo', and 'findWorkspace'.
 -- For example:
 --
--- >   , ((modm     , xK_f), moveTo Next EmptyWS)  -- find a free workspace
+-- >   , ((modm     , xK_f), moveTo Next emptyWS)  -- find a free workspace
 -- >   , ((modm .|. controlMask, xK_Right),        -- a crazy keybinding!
--- >         do t <- findWorkspace getSortByXineramaRule Next NonEmptyWS 2
+-- >         do t <- findWorkspace getSortByXineramaRule Next (Not emptyWS) 2
 -- >            windows . view $ t                                         )
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 --
 -- When using the toggle functions, in order to ensure that the workspace
 -- to which you switch is the previously viewed workspace, use the
@@ -201,8 +205,7 @@ skipTags wss ids = filter ((`notElem` ids) . tag) wss
 lastViewedHiddenExcept :: [WorkspaceId] -> X (Maybe WorkspaceId)
 lastViewedHiddenExcept skips = do
     hs <- gets $ map tag . flip skipTags skips . hidden . windowset
-    vs <- WH.workspaceHistory
-    return $ choose hs (find (`elem` hs) vs)
+    choose hs . find (`elem` hs) <$> WH.workspaceHistory
     where choose []    _           = Nothing
           choose (h:_) Nothing     = Just h
           choose _     vh@(Just _) = vh
@@ -213,8 +216,8 @@ switchWorkspace d = wsBy d >>= windows . greedyView
 shiftBy :: Int -> X ()
 shiftBy d = wsBy d >>= windows . shift
 
-wsBy :: Int -> X (WorkspaceId)
-wsBy = findWorkspace getSortByIndex Next AnyWS
+wsBy :: Int -> X WorkspaceId
+wsBy = findWorkspace getSortByIndex Next anyWS
 
 {- $taketwo
 
@@ -223,7 +226,7 @@ through subsets of workspaces.
 
 For example,
 
->   moveTo Next EmptyWS
+>   moveTo Next emptyWS
 
 will move to the first available workspace with no windows, and
 
@@ -234,6 +237,13 @@ the letter 'p' in its name. =)
 
 -}
 
+{-# DEPRECATED EmptyWS             "Use emptyWS instead." #-}
+{-# DEPRECATED HiddenWS            "Use hiddenWS instead." #-}
+{-# DEPRECATED NonEmptyWS          "Use Not emptyWS instead." #-}
+{-# DEPRECATED HiddenNonEmptyWS    "Use hiddenWS :&: Not emptyWS instead." #-}
+{-# DEPRECATED HiddenEmptyWS       "Use hiddenWS :&: emptyWS instead." #-}
+{-# DEPRECATED AnyWS               "Use anyWS instead." #-}
+{-# DEPRECATED WSTagGroup          "Use wsTagGroup instead." #-}
 -- | What type of workspaces should be included in the cycle?
 data WSType = EmptyWS     -- ^ cycle through empty workspaces
             | NonEmptyWS  -- ^ cycle through non-empty workspaces
@@ -248,6 +258,11 @@ data WSType = EmptyWS     -- ^ cycle through empty workspaces
             | WSIs (X (WindowSpace -> Bool))
                           -- ^ cycle through workspaces satisfying
                           --   an arbitrary predicate
+            | WSType :&: WSType -- ^ cycle through workspaces satisfying both
+                                --   predicates.
+            | WSType :|: WSType -- ^ cycle through workspaces satisfying one of
+                                --   the predicates.
+            | Not WSType -- ^ cycle through workspaces not satisfying the predicate
 
 -- | Convert a WSType value to a predicate on workspaces.
 wsTypeToPred :: WSType -> X (WindowSpace -> Bool)
@@ -262,10 +277,46 @@ wsTypeToPred HiddenEmptyWS  = do ne <- wsTypeToPred EmptyWS
                                  hi <- wsTypeToPred HiddenWS
                                  return (\w -> hi w && ne w)
 wsTypeToPred AnyWS      = return (const True)
-wsTypeToPred (WSTagGroup sep) = do cur <- (groupName.workspace.current) <$> gets windowset
+wsTypeToPred (WSTagGroup sep) = do cur <- groupName.workspace.current <$> gets windowset
                                    return $ (cur ==).groupName
                                    where groupName = takeWhile (/=sep).tag
-wsTypeToPred (WSIs p)   = p
+wsTypeToPred (WSIs p ) = p
+wsTypeToPred (p :&: q) = liftM2 (&&) <$> wsTypeToPred p <*> wsTypeToPred q
+wsTypeToPred (p :|: q) = liftM2 (||) <$> wsTypeToPred p <*> wsTypeToPred q
+wsTypeToPred (Not p  ) = fmap not <$> wsTypeToPred p
+
+-- | Cycle through empty workspaces
+emptyWS :: WSType
+emptyWS = WSIs . return $ isNothing . stack
+
+-- | Cycle through non-visible workspaces
+hiddenWS :: WSType
+hiddenWS = WSIs $ do
+  hs <- gets (map tag . hidden . windowset)
+  return $ (`elem` hs) . tag
+
+-- | Cycle through all workspaces
+anyWS :: WSType
+anyWS = WSIs . return $ const True
+
+-- | Cycle through workspaces that are not in the given list. This could, for
+--   example, be used for skipping the workspace reserved for
+--   "XMonad.Util.NamedScratchpad":
+--
+-- >  moveTo Next $ hiddenWS :&: Not emptyWS :&: ignoringWSs [scratchpadWorkspaceTag]
+--
+ignoringWSs :: [WorkspaceId] -> WSType
+ignoringWSs ts = WSIs . return $ (`notElem` ts) . tag
+
+-- | Cycle through workspaces in the same group, the
+--   group name is all characters up to the first
+--   separator character or the end of the tag
+wsTagGroup :: Char -> WSType
+wsTagGroup sep = WSIs $ do
+  cur <- groupName . workspace . current <$> gets windowset
+  return $ (cur ==) . groupName
+  where groupName = takeWhile (/= sep) . tag
+
 
 -- | View the next workspace in the given direction that satisfies
 --   the given condition.
@@ -299,7 +350,7 @@ findWorkspace :: X WorkspaceSort -> Direction1D -> WSType -> Int -> X WorkspaceI
 findWorkspace s dir t n = findWorkspaceGen s (wsTypeToPred t) (maybeNegate dir n)
   where
     maybeNegate Next d = d
-    maybeNegate Prev d = (-d)
+    maybeNegate Prev d = -d
 
 findWorkspaceGen :: X WorkspaceSort -> X (WindowSpace -> Bool) -> Int -> X WorkspaceId
 findWorkspaceGen _ _ 0 = gets (currentTag . windowset)
@@ -309,7 +360,7 @@ findWorkspaceGen sortX wsPredX d = do
     ws     <- gets windowset
     let cur     = workspace (current ws)
         sorted  = sort (workspaces ws)
-        pivoted = let (a,b) = span ((/= (tag cur)) . tag) sorted in b ++ a
+        pivoted = let (a,b) = span ((/= tag cur) . tag) sorted in b ++ a
         ws'     = filter wsPred pivoted
         mCurIx  = findWsIndex cur ws'
         d'      = if d > 0 then d - 1 else d
@@ -321,7 +372,7 @@ findWorkspaceGen sortX wsPredX d = do
     return $ tag next
 
 findWsIndex :: WindowSpace -> [WindowSpace] -> Maybe Int
-findWsIndex ws wss = findIndex ((== tag ws) . tag) wss
+findWsIndex ws = findIndex ((== tag ws) . tag)
 
 -- | View next screen
 nextScreen :: X ()
@@ -349,7 +400,7 @@ the default screen keybindings:
 >         , (f, m) <- [(W.view, 0), (W.shift, shiftMask)]]
 
 -}
-screenBy :: Int -> X (ScreenId)
+screenBy :: Int -> X ScreenId
 screenBy d = do ws <- gets windowset
                 --let ss = sortBy screen (screens ws)
                 let now = screen (current ws)

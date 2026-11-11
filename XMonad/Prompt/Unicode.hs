@@ -1,5 +1,6 @@
 {- |
 Module      :  XMonad.Prompt.Unicode
+Description :  A prompt for inputting Unicode characters.
 Copyright   :  (c) 2016 Joachim Breitner
                    2017 Nick Hu
 License     :  BSD-style (see LICENSE)
@@ -14,8 +15,6 @@ The provided @unicodePrompt@ and @typeUnicodePrompt@ use @xsel@ and @xdotool@
 respectively.
 -}
 
-{-# LANGUAGE DeriveDataTypeable #-}
-
 module XMonad.Prompt.Unicode (
  -- * Usage
  -- $usage
@@ -24,18 +23,15 @@ module XMonad.Prompt.Unicode (
  mkUnicodePrompt
  ) where
 
+import Codec.Binary.UTF8.String (decodeString)
 import qualified Data.ByteString.Char8 as BS
-import Data.Char
-import Data.Maybe
-import Data.Ord
 import Numeric
 import System.IO
 import System.IO.Error
-import Control.Arrow
-import Data.List
 import Text.Printf
 
 import XMonad
+import XMonad.Prelude
 import qualified XMonad.Util.ExtensibleState as XS
 import XMonad.Util.Run
 import XMonad.Prompt
@@ -46,8 +42,8 @@ instance XPrompt Unicode where
   commandToComplete Unicode s = s
   nextCompletion Unicode = getNextCompletion
 
-newtype UnicodeData = UnicodeData { getUnicodeData :: [(Char, BS.ByteString)] }
-  deriving (Typeable, Read, Show)
+newtype UnicodeData = UnicodeData { getUnicodeData :: [(Char, String)] }
+  deriving (Read, Show)
 
 instance ExtensionClass UnicodeData where
   initialValue = UnicodeData []
@@ -56,7 +52,7 @@ instance ExtensionClass UnicodeData where
 {- $usage
 
 You can use this module by importing it, along with
-"XMonad.Prompt", into your ~\/.xmonad\/xmonad.hs file:
+"XMonad.Prompt", into your @xmonad.hs@ file:
 
 > import XMonad.Prompt
 > import XMonad.Prompt.Unicode
@@ -64,6 +60,11 @@ You can use this module by importing it, along with
 and adding an appropriate keybinding, for example:
 
 >  , ((modm .|. controlMask, xK_u), unicodePrompt "/path/to/unicode-data" def)
+
+A path to a @UnicodeData.txt@ file or equivalent must be provided.  This file
+should be available through your package manager; search for @unicode-data@.
+If no package is found, one may opt to download this file directly from
+[unicode.org](http://www.unicode.org/Public/UNIDATA/UnicodeData.txt).
 
 More flexibility is given by the @mkUnicodePrompt@ function, which takes a
 command and a list of arguments to pass as its first two arguments. See
@@ -83,35 +84,36 @@ populateEntries unicodeDataFilename = do
           hPutStrLn stderr "Do you have unicode-data installed?"
           return False
         Right dat -> do
-          XS.put . UnicodeData . sortBy (comparing (BS.length . snd)) $ parseUnicodeData dat
+          XS.put . UnicodeData . sortOn (length . snd) $ parseUnicodeData dat
           return True
     else return True
 
-parseUnicodeData :: BS.ByteString -> [(Char, BS.ByteString)]
+parseUnicodeData :: BS.ByteString -> [(Char, String)]
 parseUnicodeData = mapMaybe parseLine . BS.lines
   where parseLine l = do
           field1 : field2 : _ <- return $ BS.split ';' l
           [(c,"")] <- return . readHex $ BS.unpack field1
-          return (chr c, field2)
+          desc <- return . decodeString $ BS.unpack field2
+          return (chr c, desc)
 
 type Predicate = String -> String -> Bool
 
-searchUnicode :: [(Char, BS.ByteString)] -> Predicate -> String -> [(Char, String)]
-searchUnicode entries p s = map (second BS.unpack) $ filter go entries
-  where w = filter (all isAscii) . filter ((> 1) . length) . words $ map toUpper s
-        go (c,d) = all (`p` (BS.unpack d)) w
+searchUnicode :: [(Char, String)] -> Predicate -> String -> [(Char, String)]
+searchUnicode entries p s = filter go entries
+  where w = filter ((> 1) . length) . words $ map toUpper s
+        go (_, d) = all (`p` d) w
 
 mkUnicodePrompt :: String -> [String] -> String -> XPConfig -> X ()
-mkUnicodePrompt prog args unicodeDataFilename config =
+mkUnicodePrompt prog args unicodeDataFilename xpCfg =
   whenX (populateEntries unicodeDataFilename) $ do
     entries <- fmap getUnicodeData (XS.get :: X UnicodeData)
     mkXPrompt
       Unicode
-      (config {sorter = sorter config . map toUpper})
-      (unicodeCompl entries $ searchPredicate config)
+      (xpCfg {sorter = sorter xpCfg . map toUpper})
+      (unicodeCompl entries $ searchPredicate xpCfg)
       paste
   where
-    unicodeCompl :: [(Char, BS.ByteString)] -> Predicate -> String -> IO [String]
+    unicodeCompl :: [(Char, String)] -> Predicate -> String -> IO [String]
     unicodeCompl _ _ "" = return []
     unicodeCompl entries p s = do
       let m = searchUnicode entries p s

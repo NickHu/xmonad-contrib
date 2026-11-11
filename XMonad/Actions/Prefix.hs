@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.Prefix
+-- Description :  Use an Emacs-style prefix argument for commands.
 -- Copyright   :  (c) Matus Goljer <matus.goljer@gmail.com>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -28,22 +29,25 @@ module XMonad.Actions.Prefix
        , withPrefixArgument
        , isPrefixRaw
        , isPrefixNumeric
+       , orIfPrefixed
        , ppFormatPrefix
        ) where
 
 import qualified Data.Map as M
-import Data.Maybe
-import Control.Monad (liftM2)
 
+import XMonad.Prelude
 import XMonad
 import XMonad.Util.ExtensibleState as XS
 import XMonad.Util.Paste (sendKey)
 import XMonad.Actions.Submap (submapDefaultWithKey)
+import XMonad.Util.EZConfig (readKeySequence)
+import qualified Data.List.NonEmpty as NE
+import Data.List.NonEmpty ((<|))
 
 {- $usage
 
 This module implements Emacs-style prefix argument.  The argument
-comes in two flavours, "Raw" and "Numeric".
+comes in two flavours, 'Raw' and 'Numeric'.
 
 To initiate the "prefix mode" you hit the prefix keybinding (default
 C-u).  This sets the Raw argument value to 1.  Repeatedly hitting this
@@ -71,7 +75,7 @@ Binding it in your config
 
 >    ((modm, xK_a), withPrefixArgument addMaybeClean)
 
-Hitting MOD-a will add the <file> to the playlist while C-u MOD-a will
+Hitting MOD-a will add the @\<file\>@ to the playlist while C-u MOD-a will
 clear the playlist and then add the file.
 
 You can of course use an anonymous action, like so:
@@ -97,21 +101,17 @@ The simplest way to enable this is to use 'useDefaultPrefixArgument'
 >    xmonad $ useDefaultPrefixArgument $ def { .. }
 
 The default prefix argument is C-u.  If you want to customize the
-prefix argument, use the following:
+prefix argument, 'usePrefixArgument' can be used:
 
->    xmonad $ usePrefixArgument prefixKey $ def { .. }
+>    xmonad $ usePrefixArgument "M-u" $ def { .. }
 
-where 'prefixKey' is a function which takes 'XConfig' as an argument
-in case you wish to extract the 'modMask'.  An example
-implementation is the following:
-
->    prefixKey :: XConfig t -> (KeyMask, KeySym)
->    prefixKey XConfig{modMask = modm} = (modm, xK_u)
-
+where the key is entered in Emacs style (or "XMonad.Util.EZConfig"
+style) notation.  The letter `M` stands for your chosen modifier.  The
+function defaults to C-u if the argument could not be parsed.
 -}
 
 data PrefixArgument = Raw Int | Numeric Int | None
-                      deriving (Typeable, Read, Show)
+                      deriving (Read, Show)
 instance ExtensionClass PrefixArgument where
   initialValue = None
   extensionType = PersistentExtension
@@ -123,27 +123,27 @@ instance ExtensionClass PrefixArgument where
 finallyX :: X a -> X a -> X a
 finallyX job cleanup = catchX (job >>= \r -> cleanup >> return r) cleanup
 
--- | Set Prefix up with custom configuration.
+-- | Set up Prefix.  Defaults to C-u when given an invalid key.
 --
 -- See usage section.
 usePrefixArgument :: LayoutClass l Window
-                  => (XConfig Layout -> (KeyMask, KeySym))
+                  => String
                   -> XConfig l
                   -> XConfig l
-usePrefixArgument prefix conf = conf {
-    keys = liftM2 M.union keys' (keys conf)
-  }
-  where keys' conf' =
-          let binding = prefix conf'
-          in M.singleton binding (handlePrefixArg [binding])
+usePrefixArgument prefix conf =
+  conf{ keys = M.insert binding (handlePrefixArg (binding :| [])) . keys conf }
+ where
+  binding = case readKeySequence conf prefix of
+    Just (key :| []) -> key
+    _                -> (controlMask, xK_u)
 
 -- | Set Prefix up with default prefix key (C-u).
 useDefaultPrefixArgument :: LayoutClass l Window
                          => XConfig l
                          -> XConfig l
-useDefaultPrefixArgument = usePrefixArgument (\_ -> (controlMask, xK_u))
+useDefaultPrefixArgument = usePrefixArgument "C-u"
 
-handlePrefixArg :: [(KeyMask, KeySym)] -> X ()
+handlePrefixArg :: NonEmpty (KeyMask, KeySym) -> X ()
 handlePrefixArg events = do
   ks <- asks keyActions
   logger <- asks (logHook . config)
@@ -164,19 +164,19 @@ handlePrefixArg events = do
               Raw _ -> XS.put $ Numeric x
               Numeric a -> XS.put $ Numeric $ a * 10 + x
               None -> return () -- should never happen
-            handlePrefixArg (key:events)
+            handlePrefixArg (key <| events)
           else do
             prefix <- XS.get
             mapM_ (uncurry sendKey) $ case prefix of
-              Raw a -> replicate a (head events) ++ [key]
-              _ -> reverse (key:events)
+              Raw a -> replicate a (NE.head events) ++ [key]
+              _ -> reverse (key : toList events)
         keyToNum = (xK_0, 0) : zip [xK_1 .. xK_9] [1..9]
 
 -- | Turn a prefix-aware X action into an X-action.
 --
 -- First, fetch the current prefix, then pass it as argument to the
 -- original function.  You should use this to "run" your commands.
-withPrefixArgument :: (PrefixArgument -> X ()) -> X ()
+withPrefixArgument :: (PrefixArgument -> X a) -> X a
 withPrefixArgument = (>>=) XS.get
 
 -- | Test if 'PrefixArgument' is 'Raw' or not.
@@ -189,6 +189,13 @@ isPrefixNumeric :: PrefixArgument -> Bool
 isPrefixNumeric (Numeric _) = True
 isPrefixNumeric _ = False
 
+-- | Execute the first action, unless any prefix argument is given,
+-- in which case the second action is chosen instead.
+--
+-- > action1 `orIfPrefixed` action2
+orIfPrefixed :: X a -> X a -> X a
+orIfPrefixed xa xb = withPrefixArgument $ bool xa xb . isPrefixRaw
+
 -- | Format the prefix using the Emacs convetion for use in a
 -- statusbar, like xmobar.
 --
@@ -198,7 +205,12 @@ isPrefixNumeric _ = False
 -- > myPrinter :: PP
 -- > myPrinter = def { ppExtras = [ppFormatPrefix] }
 --
--- And then in your 'logHook' configuration
+-- And then add to your status bar using "XMonad.Hooks.StatusBar":
+--
+-- > mySB = statusBarProp "xmobar" myPrinter
+-- > main = xmonad $ withEasySB mySB defToggleStrutsKey def
+--
+-- Or, directly in your 'logHook' configuration
 --
 -- > logHook = dynamicLogWithPP myPrinter
 ppFormatPrefix :: X (Maybe String)

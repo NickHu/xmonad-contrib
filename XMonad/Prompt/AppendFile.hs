@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Prompt.AppendFile
+-- Description :  A prompt for appending a single line of text to a file.
 -- Copyright   :  (c) 2007 Brent Yorgey
 -- License     :  BSD-style (see LICENSE)
 --
@@ -29,14 +30,14 @@ module XMonad.Prompt.AppendFile (
 
 import XMonad.Core
 import XMonad.Prompt
+import XMonad.Prelude (mkAbsolutePath)
 
 import System.IO
-import Control.Exception (bracket)
 
 -- $usage
 --
 -- You can use this module by importing it, along with
--- "XMonad.Prompt", into your ~\/.xmonad\/xmonad.hs file:
+-- "XMonad.Prompt", into your @xmonad.hs@ file:
 --
 -- > import XMonad.Prompt
 -- > import XMonad.Prompt.AppendFile
@@ -68,9 +69,9 @@ import Control.Exception (bracket)
 -- the file too.
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
-data AppendFile = AppendFile FilePath
+newtype AppendFile = AppendFile FilePath
 
 instance XPrompt AppendFile where
     showXPrompt (AppendFile fn) = "Add to " ++ fn ++ ": "
@@ -78,7 +79,7 @@ instance XPrompt AppendFile where
 -- | Given an XPrompt configuration and a file path, prompt the user
 --   for a line of text, and append it to the given file.
 appendFilePrompt :: XPConfig -> FilePath -> X ()
-appendFilePrompt c fn = appendFilePrompt' c id fn
+appendFilePrompt c = appendFilePrompt' c id
 
 -- | Given an XPrompt configuration, string transformation function
 --   and a file path, prompt the user for a line of text, transform it
@@ -91,4 +92,4 @@ appendFilePrompt' c trans fn = mkXPrompt (AppendFile fn)
 
 -- | Append a string to a file.
 doAppend :: (String -> String) -> FilePath -> String -> X ()
-doAppend trans fn = io . bracket (openFile fn AppendMode) hClose . flip hPutStrLn . trans
+doAppend trans fn s = mkAbsolutePath fn >>= \f -> (io . withFile f AppendMode . flip hPutStrLn . trans) s

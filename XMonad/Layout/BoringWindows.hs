@@ -1,8 +1,9 @@
-{-# LANGUAGE TypeSynonymInstances, MultiParamTypeClasses, DeriveDataTypeable #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternGuards, FlexibleContexts, FlexibleInstances #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.BoringWindows
+-- Description :  Mark windows as boring.
 -- Copyright   :  (c) 2008  David Roundy <droundy@darcs.net>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -34,16 +35,17 @@ module XMonad.Layout.BoringWindows (
 
 import XMonad.Layout.LayoutModifier(ModifiedLayout(..),
                                     LayoutModifier(handleMessOrMaybeModifyIt, redoLayout))
-import XMonad(Typeable, LayoutClass, Message, X, fromMessage,
+import XMonad(LayoutClass, Message, X, fromMessage,
               broadcastMessage, sendMessage, windows, withFocused, Window)
-import Data.List((\\), union)
-import Data.Maybe(fromMaybe, listToMaybe, maybeToList)
+import XMonad.Prelude
+import XMonad.Util.Stack (reverseS)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
 import qualified XMonad.StackSet as W
 
 -- $usage
 -- You can use this module with the following in your
--- @~\/.xmonad\/xmonad.hs@:
+-- @xmonad.hs@:
 --
 -- > import XMonad.Layout.BoringWindows
 --
@@ -58,9 +60,9 @@ import qualified XMonad.StackSet as W
 -- > , ((modm, xK_k), focusDown)
 -- > , ((modm, xK_m), focusMaster)
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 
 data BoringMessage = FocusUp | FocusDown | FocusMaster | IsBoring Window | ClearBoring
@@ -70,14 +72,13 @@ data BoringMessage = FocusUp | FocusDown | FocusMaster | IsBoring Window | Clear
                      | SwapDown
                      | SiftUp
                      | SiftDown
-                     deriving ( Read, Show, Typeable )
+                     deriving ( Read, Show )
 
 instance Message BoringMessage
 
 -- | UpdateBoring is sent before attempting to view another boring window, so
 -- that layouts have a chance to mark boring windows.
 data UpdateBoring = UpdateBoring
-    deriving (Typeable)
 instance Message UpdateBoring
 
 markBoring, clearBoring, focusUp, focusDown, focusMaster, swapUp, swapDown, siftUp, siftDown :: X ()
@@ -92,7 +93,7 @@ siftUp = sendMessage UpdateBoring >> sendMessage SiftUp
 siftDown = sendMessage UpdateBoring >> sendMessage SiftDown
 
 -- | Mark current focused window boring for all layouts.
--- This is useful in combination with the 'XMonad.Actions.CopyWindow' module.
+-- This is useful in combination with the "XMonad.Actions.CopyWindow" module.
 markBoringEverywhere :: X ()
 markBoringEverywhere = withFocused (broadcastMessage . IsBoring)
 
@@ -100,7 +101,7 @@ data BoringWindows a = BoringWindows
     { namedBoring :: M.Map String [a] -- ^ store borings with a specific source
     , chosenBoring :: [a]             -- ^ user-chosen borings
     , hiddenBoring :: Maybe [a]       -- ^ maybe mark hidden windows
-    } deriving (Show,Read,Typeable)
+    } deriving (Show,Read)
 
 boringWindows :: (LayoutClass l a, Eq a) => l a -> ModifiedLayout BoringWindows l a
 boringWindows = ModifiedLayout (BoringWindows M.empty [] Nothing)
@@ -110,13 +111,13 @@ boringAuto :: (LayoutClass l a, Eq a) => l a -> ModifiedLayout BoringWindows l a
 boringAuto = ModifiedLayout (BoringWindows M.empty [] (Just []))
 
 instance LayoutModifier BoringWindows Window where
-    redoLayout (b@BoringWindows { hiddenBoring = bs }) _r mst arrs = do
+    redoLayout b@BoringWindows{ hiddenBoring = bs } _r mst arrs = do
         let bs' = W.integrate' mst \\ map fst arrs
-        return (arrs, Just $ b { hiddenBoring = const bs' <$> bs } )
+        return (arrs, Just $ b { hiddenBoring = bs' <$ bs } )
 
     handleMessOrMaybeModifyIt bst@(BoringWindows nbs cbs lbs) m
         | Just (Replace k ws) <- fromMessage m
-        , maybe True (ws/=) (M.lookup k nbs) =
+        , Just ws /= M.lookup k nbs =
             let nnb = if null ws then M.delete k nbs
                           else M.insert k ws nbs
             in rjl bst { namedBoring = nnb }
@@ -143,33 +144,32 @@ instance LayoutModifier BoringWindows Window where
                             do windows $ W.modify' skipBoringSwapUp
                                return Nothing
         | Just SwapDown <- fromMessage m =
-                            do windows $ W.modify' (reverseStack . skipBoringSwapUp . reverseStack)
+                            do windows $ W.modify' (reverseS . skipBoringSwapUp . reverseS)
                                return Nothing
         | Just SiftUp <- fromMessage m =
                             do windows $ W.modify' (siftUpSkipping bs)
                                return Nothing
         | Just SiftDown <- fromMessage m =
-                            do windows $ W.modify' (reverseStack . siftUpSkipping bs . reverseStack)
+                            do windows $ W.modify' (reverseS . siftUpSkipping bs . reverseS)
                                return Nothing
         where skipBoring = skipBoring' ((`notElem` bs) . W.focus)
               skipBoringSwapUp = skipBoring'
                                    (maybe True (`notElem` bs) . listToMaybe . W.down)
                                    swapUp'
-              skipBoring' p f st = fromMaybe st $ listToMaybe
-                                   $ filter p
+              skipBoring' p f st = fromMaybe st
+                                   $ find p
                                    $ drop 1
                                    $ take (length $ W.integrate st)
                                    $ iterate f st
               bs = concat $ cbs:maybeToList lbs ++ M.elems nbs
               rjl = return . Just . Left
-              reverseStack (W.Stack t ls rs) = W.Stack t rs ls
     handleMessOrMaybeModifyIt _ _ = return Nothing
 
 -- | Variant of 'focusMaster' that works on a
 -- 'Stack' rather than an entire 'StackSet'.
 focusMaster' :: W.Stack a -> W.Stack a
 focusMaster' c@(W.Stack _ [] _) = c
-focusMaster' (W.Stack t ls rs) = W.Stack x [] (xs ++ t : rs) where (x:xs) = reverse ls
+focusMaster' (W.Stack t (l:ls) rs) = W.Stack x [] (xs ++ t : rs) where (x :| xs) = NE.reverse (l :| ls)
 
 swapUp' :: W.Stack a -> W.Stack a
 swapUp' (W.Stack t (l:ls) rs) = W.Stack t ls (l:rs)

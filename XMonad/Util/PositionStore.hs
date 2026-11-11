@@ -1,8 +1,7 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.PositionStore
+-- Description :  A utility module to store information about position and size of a window.
 -- Copyright   :  (c) Jan Vornberger 2009
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -34,16 +33,16 @@ import qualified Data.Map as M
 -- and windows sizes as well as positions as fractions of the screen size.
 -- This way windows can be easily relocated and scaled when switching screens.
 
-data PositionStore = PS (M.Map Window PosStoreRectangle)
-                            deriving (Read,Show,Typeable)
+newtype PositionStore = PS (M.Map Window PosStoreRectangle)
+                            deriving (Read,Show)
 data PosStoreRectangle = PSRectangle Double Double Double Double
-                            deriving (Read,Show,Typeable)
+                            deriving (Read,Show)
 
 instance ExtensionClass PositionStore where
   initialValue = PS M.empty
   extensionType = PersistentExtension
 
-getPosStore :: X (PositionStore)
+getPosStore :: X PositionStore
 getPosStore = XS.get
 
 modifyPosStore :: (PositionStore -> PositionStore) -> X ()
@@ -73,6 +72,6 @@ posStoreQuery (PS posStoreMap) w (Rectangle srX srY srWh srHt) = do
 
 posStoreMove :: PositionStore -> Window -> Position -> Position -> Rectangle -> Rectangle -> PositionStore
 posStoreMove posStore w x y oldSr newSr =
-    case (posStoreQuery posStore w oldSr) of
+    case posStoreQuery posStore w oldSr of
         Nothing -> posStore     -- not in store, can't move -> do nothing
         Just (Rectangle _ _ wh ht) -> posStoreInsert posStore w (Rectangle x y wh ht) newSr

@@ -1,7 +1,8 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Actions.WorkspaceCursors
+-- Description  : Like "XMonad.Actions.Plane" for an arbitrary number of dimensions.
 -- Copyright    : (c) 2009 Adam Vogt <vogt.adam@gmail.com>
 -- License      : BSD
 --
@@ -46,12 +47,10 @@ import qualified XMonad.StackSet as W
 import XMonad.Actions.FocusNth(focusNth')
 import XMonad.Layout.LayoutModifier(ModifiedLayout(..),
                                     LayoutModifier(handleMess, redoLayout))
-import XMonad(Typeable, Message, WorkspaceId, X, XState(windowset),
+import XMonad(Message, WorkspaceId, X, XState(windowset),
               fromMessage, sendMessage, windows, gets)
-import Control.Applicative (liftA2)
-import Control.Monad((<=<), guard, when)
-import Data.Foldable(toList)
-import Data.Maybe(fromJust, listToMaybe)
+import XMonad.Util.Stack (reverseS)
+import XMonad.Prelude
 
 -- $usage
 --
@@ -59,13 +58,10 @@ import Data.Maybe(fromJust, listToMaybe)
 --
 -- > import XMonad
 -- > import XMonad.Actions.WorkspaceCursors
--- > import XMonad.Hooks.DynamicLog
 -- > import XMonad.Util.EZConfig
 -- > import qualified XMonad.StackSet as W
 -- >
--- > main = do
--- >     x <- xmobar conf
--- >     xmonad x
+-- > main = xmonad conf
 -- >
 -- > conf = additionalKeysP def
 -- >        { layoutHook = workspaceCursors myCursors $ layoutHook def
@@ -90,7 +86,8 @@ import Data.Maybe(fromJust, listToMaybe)
 --   workspaces. Or change it such that workspaces are created when you try to
 --   view it.
 --
--- * Function for pretty printing for DynamicLog that groups workspaces by
+-- * Function for pretty printing for "XMonad.Hooks.StatusBar.PP" that groups
+--   workspaces by
 -- common prefixes
 --
 -- * Examples of adding workspaces to the cursors, having them appear multiple
@@ -98,10 +95,10 @@ import Data.Maybe(fromJust, listToMaybe)
 
 -- | makeCursors requires a nonempty string, and each sublist must be nonempty
 makeCursors ::  [[String]] -> Cursors String
-makeCursors [] = error "Workspace Cursors cannot be empty"
-makeCursors a = concat . reverse <$> foldl addDim x xs
-    where x = end $ map return $ head a
-          xs = map (map return) $ tail a
+makeCursors []       = error "Workspace Cursors cannot be empty"
+makeCursors (a : as) = concat . reverse <$> foldl addDim x xs
+    where x = end $ map return a
+          xs = map (map return) as
           -- this could probably be simplified, but this true:
           -- toList . makeCursors == map (concat . reverse) . sequence . reverse . map (map (:[]))
           -- the strange order is used because it makes the regular M-1..9
@@ -116,7 +113,7 @@ end = Cons . fromJust . W.differentiate . map End
 
 data Cursors a
     = Cons (W.Stack (Cursors a))
-    | End a deriving (Eq,Show,Read,Typeable)
+    | End a deriving (Eq,Show,Read)
 
 instance Foldable Cursors where
     foldMap f (End x) = f x
@@ -142,7 +139,7 @@ getFocus (End x) = x
 
 -- This could be made more efficient, if the fact that the suffixes are grouped
 focusTo ::  (Eq t) => t -> Cursors t -> Maybe (Cursors t)
-focusTo x = listToMaybe . filter ((x==) . getFocus) . changeFocus (const True)
+focusTo x = find ((x==) . getFocus) . changeFocus (const True)
 
 -- | non-wrapping version of 'W.focusUp''
 noWrapUp ::  W.Stack t -> W.Stack t
@@ -151,8 +148,7 @@ noWrapUp x@(W.Stack _ []   _ ) = x
 
 -- | non-wrapping version of 'W.focusDown''
 noWrapDown ::  W.Stack t -> W.Stack t
-noWrapDown = reverseStack . noWrapUp . reverseStack
-    where reverseStack (W.Stack t ls rs) = W.Stack t rs ls
+noWrapDown = reverseS . noWrapUp . reverseS
 
 focusDepth ::  Cursors t -> Int
 focusDepth (Cons x) = 1 + focusDepth (W.focus x)
@@ -192,8 +188,8 @@ modifyLayer' f depth = modifyCursors (descend f depth)
 modifyCursors ::  (Cursors String -> X (Cursors String)) -> X ()
 modifyCursors = sendMessage . ChangeCursors . (liftA2 (>>) updateXMD return <=<)
 
-data WorkspaceCursors a = WorkspaceCursors (Cursors String)
-    deriving (Typeable,Read,Show)
+newtype WorkspaceCursors a = WorkspaceCursors (Cursors String)
+    deriving (Read,Show)
 
 -- | The state is stored in the 'WorkspaceCursors' layout modifier. Put this as
 -- your outermost modifier, unless you want different cursors at different
@@ -201,8 +197,7 @@ data WorkspaceCursors a = WorkspaceCursors (Cursors String)
 workspaceCursors :: Cursors String -> l a -> ModifiedLayout WorkspaceCursors l a
 workspaceCursors = ModifiedLayout . WorkspaceCursors
 
-data ChangeCursors = ChangeCursors { unWrap :: Cursors String -> X (Cursors String) }
-    deriving (Typeable)
+newtype ChangeCursors = ChangeCursors { unWrap :: Cursors String -> X (Cursors String) }
 
 instance Message ChangeCursors
 
@@ -217,4 +212,4 @@ instance LayoutModifier WorkspaceCursors a where
         return (arrs,WorkspaceCursors <$> focusTo cws cs)
 
     handleMess (WorkspaceCursors cs) m =
-        sequenceA $ fmap WorkspaceCursors . ($ cs) . unWrap <$> fromMessage m
+        traverse (fmap WorkspaceCursors . ($ cs) . unWrap) (fromMessage m)

@@ -1,8 +1,10 @@
-{-# LANGUAGE FlexibleContexts, FlexibleInstances, FunctionalDependencies, KindSignatures, MultiParamTypeClasses, UndecidableInstances #-}
+{-# OPTIONS_HADDOCK hide #-}
+{-# LANGUAGE FlexibleContexts, FlexibleInstances, FunctionalDependencies, KindSignatures, UndecidableInstances #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Config.Prime
+-- Description :  Draft of a brand new config syntax for xmonad.
 -- Copyright   :  Devin Mullins <devin.mullins@gmail.com>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -22,7 +24,7 @@
 --
 -----------------------------------------------------------------------------
 
-module XMonad.Config.Prime (
+module XMonad.Config.Prime {-# DEPRECATED "This module is a perpetual draft and will therefore be removed from xmonad-contrib in the near future." #-} (
 -- Note: The identifiers here are listed in the order that makes the most sense
 -- for a user, while the definitions below are listed in the order that makes
 -- the most sense for a developer.
@@ -115,7 +117,7 @@ ifThenElse,
 import Prelude hiding ((>>), mod)
 import qualified Prelude as P ((>>=), (>>))
 
-import Data.Monoid (All)
+import XMonad.Prelude (All)
 
 import XMonad hiding (xmonad, XConfig(..))
 import XMonad (XConfig(XConfig))
@@ -125,7 +127,7 @@ import qualified XMonad as X (xmonad, XConfig(..))
 import XMonad.Util.EZConfig (additionalKeysP, additionalMouseBindings, checkKeymap, removeKeysP, removeMouseBindings)
 
 -- $start_here
--- To start with, create a @~\/.xmonad\/xmonad.hs@ that looks like this:
+-- To start with, create a @xmonad.hs@ that looks like this:
 --
 -- > {-# LANGUAGE RebindableSyntax #-}
 -- > import XMonad.Config.Prime
@@ -279,7 +281,7 @@ instance SummableClass (Summable x y) y where
 --
 -- Note that operator precedence mandates the parentheses here.
 manageHook :: Summable ManageHook ManageHook (XConfig l)
-manageHook = Summable X.manageHook (\x c -> c { X.manageHook = x }) (<+>)
+manageHook = Summable X.manageHook (\x c -> c { X.manageHook = x }) (<>)
 
 -- | Custom X event handler. Return @All True@ if the default handler should
 -- also be run afterwards. Default does nothing. To add an event handler:
@@ -288,7 +290,7 @@ manageHook = Summable X.manageHook (\x c -> c { X.manageHook = x }) (<+>)
 -- > ...
 -- >   handleEventHook =+ serverModeEventHook
 handleEventHook :: Summable (Event -> X All) (Event -> X All) (XConfig l)
-handleEventHook = Summable X.handleEventHook (\x c -> c { X.handleEventHook = x }) (<+>)
+handleEventHook = Summable X.handleEventHook (\x c -> c { X.handleEventHook = x }) (<>)
 
 -- | List of workspaces' names. Default: @map show [1 .. 9 :: Int]@. Adding
 -- appends to the end:
@@ -387,7 +389,7 @@ instance RemovableClass MouseBindings [(ButtonMask, Button)] where
   MouseBindings { mRemove = r } =- sadBindings = return . r sadBindings
 
 -- | Mouse button bindings to an 'X' actions on a window. Default: see @`man
--- xmonad`@. To make mod-<scrollwheel> switch workspaces:
+-- xmonad`@. To make @mod-\<scrollwheel\>@ switch workspaces:
 --
 -- > import XMonad.Actions.CycleWS (nextWS, prevWS)
 -- > ...
@@ -478,7 +480,7 @@ wsActions = Summable wsActions_ (\x c -> c { wsActions_ = x }) (++)
 -- >     wsSetName 1 "mail"
 -- >     wsSetName 2 "web"
 wsSetName :: Int -> String -> Arr WorkspaceConfig WorkspaceConfig
-wsSetName index newName = wsNames =. (map maybeSet . zip [0..])
+wsSetName index newName = wsNames =. zipWith (curry maybeSet) [0..]
   where maybeSet (i, oldName) | i == (index - 1) = newName
                               | otherwise = oldName
 
@@ -497,8 +499,8 @@ withScreens :: Arr ScreenConfig ScreenConfig -> Prime l l
 withScreens sarr xconf = (P.>>=) (sarr def) $ \sconf -> sprime sconf xconf
   where sprime :: ScreenConfig -> Prime l l
         sprime sconf =
-          (keys =+ [(mod ++ key, action sid) | (sid, key) <- zip [0..] (sKeys_ sconf),
-                                               (mod, action) <- sActions_ sconf])
+          keys =+ [(mod ++ key, action sid) | (sid, key) <- zip [0..] (sKeys_ sconf),
+                                              (mod, action) <- sActions_ sconf]
 
 data ScreenConfig = ScreenConfig {
   sKeys_ :: [String],

@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.StackTile
+-- Description :  Like "XMonad.Layout.Dishes" but with the ability to resize the master pane.
 -- Copyright   :  (c) Rickard Gustafsson <acura@allyourbase.se>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -23,10 +24,10 @@ module XMonad.Layout.StackTile (
 
 import XMonad hiding (tile)
 import qualified XMonad.StackSet as W
-import Control.Monad
+import XMonad.Prelude
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.StackTile
 --
@@ -35,9 +36,9 @@ import Control.Monad
 -- > myLayout =  StackTile 1 (3/100) (1/2) ||| etc..
 -- > main = xmonad def { layoutHook = myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 --
 data StackTile a = StackTile !Int !Rational !Rational deriving (Show, Read)
 

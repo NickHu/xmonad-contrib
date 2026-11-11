@@ -1,7 +1,8 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.FixedColumn
+-- Description :  Like Tall, but split at a fixed column (or a window's smallest resize amount).
 -- Copyright   :  (c) 2008 Justin Bogner <mail@justinbogner.com>
 -- License     :  BSD3-style (as xmonad)
 --
@@ -22,21 +23,12 @@ module XMonad.Layout.FixedColumn (
         FixedColumn(..)
 ) where
 
-import Control.Monad (msum)
-import Data.Maybe (fromMaybe)
-import Graphics.X11.Xlib (Window, rect_width)
-import Graphics.X11.Xlib.Extras ( getWMNormalHints
-                                , getWindowAttributes
-                                , sh_base_size
-                                , sh_resize_inc
-                                , wa_border_width)
-
-import XMonad.Core (X, LayoutClass(..), fromMessage, io, withDisplay)
-import XMonad.Layout (Resize(..), IncMasterN(..), tile)
-import XMonad.StackSet as W
+import XMonad
+import XMonad.Prelude
+import qualified XMonad.StackSet as W
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.FixedColumn
 --
@@ -45,9 +37,9 @@ import XMonad.StackSet as W
 -- > myLayout = FixedColumn 1 20 80 10 ||| Full ||| etc..
 -- > main = xmonad def { layoutHook = myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 -- | A tiling mode based on preserving a nice fixed width
 --   window. Supports 'Shrink', 'Expand' and 'IncMasterN'.
@@ -62,7 +54,7 @@ instance LayoutClass FixedColumn Window where
             fws <- mapM (widthCols fallback ncol) ws
             let frac = maximum (take nmaster fws) // rect_width r
                 rs   = tile frac r nmaster (length ws)
-            return $ (zip ws rs, Nothing)
+            return (zip ws rs, Nothing)
         where ws     = W.integrate s
               x // y = fromIntegral x / fromIntegral y
 
@@ -82,10 +74,11 @@ instance LayoutClass FixedColumn Window where
 --   columns wide, using @inc@ as a resize increment for windows that
 --   don't have one
 widthCols :: Int -> Int -> Window -> X Int
-widthCols inc n w = withDisplay $ \d -> io $ do
-    sh <- getWMNormalHints d w
-    bw <- fromIntegral . wa_border_width <$> getWindowAttributes d w
-    let widthHint f = f sh >>= return . fromIntegral . fst
+widthCols inc n w = do
+    d  <- asks display
+    bw <- asks $ fi . borderWidth . config
+    sh <- io $ getWMNormalHints d w
+    let widthHint f = f sh <&> fromIntegral . fst
         oneCol      = fromMaybe inc $ widthHint sh_resize_inc
         base        = fromMaybe 0 $ widthHint sh_base_size
     return $ 2 * bw + base + n * oneCol

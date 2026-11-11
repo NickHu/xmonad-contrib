@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Prompt.Email
+-- Description :  A prompt for sending quick, one-line emails, via GNU \'mail\'.
 -- Copyright   :  (c) 2007 Brent Yorgey
 -- License     :  BSD-style (see LICENSE)
 --
@@ -23,13 +24,14 @@ module XMonad.Prompt.Email (
 
 import XMonad.Core
 import XMonad.Util.Run
+import XMonad.Prelude (void)
 import XMonad.Prompt
 import XMonad.Prompt.Input
 
 -- $usage
 --
 -- You can use this module by importing it, along with
--- "XMonad.Prompt", into your ~\/.xmonad\/xmonad.hs file:
+-- "XMonad.Prompt", into your @xmonad.hs@ file:
 --
 -- > import XMonad.Prompt
 -- > import XMonad.Prompt.Email
@@ -48,7 +50,7 @@ import XMonad.Prompt.Input
 -- characters and then hit \'tab\'.
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 
 -- | Prompt the user for a recipient, subject, and body, and send an
@@ -59,5 +61,4 @@ emailPrompt c addrs =
     inputPromptWithCompl c "To" (mkComplFunFromList c addrs) ?+ \to ->
     inputPrompt c "Subject" ?+ \subj ->
     inputPrompt c "Body" ?+ \body ->
-    runProcessWithInput "mail" ["-s", subj, to] (body ++ "\n")
-         >> return ()
+    void (runProcessWithInput "mail" ["-s", subj, to] (body ++ "\n"))

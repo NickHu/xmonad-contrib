@@ -1,6 +1,8 @@
+{-# LANGUAGE MultiWayIf #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.Loggers
+-- Description :  A collection of simple logger functions and formatting utilities.
 -- Copyright   :  (c) Brent Yorgey, Wirt Wolff
 -- License     :  BSD-style (see LICENSE)
 --
@@ -9,8 +11,8 @@
 -- Portability :  unportable
 --
 -- A collection of simple logger functions and formatting utilities
--- which can be used in the 'XMonad.Hooks.DynamicLog.ppExtras' field of
--- a pretty-printing status logger format. See "XMonad.Hooks.DynamicLog"
+-- which can be used in the 'XMonad.Hooks.StatusBar.PP.ppExtras' field of
+-- a pretty-printing status logger format. See "XMonad.Hooks.StatusBar.PP"
 -- for more information.
 -----------------------------------------------------------------------------
 
@@ -31,12 +33,18 @@ module XMonad.Util.Loggers (
 
     -- * XMonad Loggers
     -- $xmonad
-    , logCurrent, logLayout, logTitle
+    , logCurrent, logLayout
+    , logTitle, logTitles, logTitles'
+    , logClassname, logClassnames, logClassnames'
     , logConst, logDefault, (.|)
     -- * XMonad: Screen-specific Loggers
     -- $xmonad-screen
     , logCurrentOnScreen, logLayoutOnScreen
-    , logTitleOnScreen, logWhenActive
+    , logTitleOnScreen, logClassnameOnScreen, logWhenActive
+    , logTitlesOnScreen, logTitlesOnScreen'
+    , logClassnamesOnScreen, logClassnamesOnScreen'
+    , TitlesFormat(..)
+    , ClassnamesFormat(..)
     -- * Formatting Utilities
     -- $format
     , onLogger
@@ -47,16 +55,16 @@ module XMonad.Util.Loggers (
 
   ) where
 
-import XMonad (liftIO, Window)
+import XMonad (Default, gets, liftIO, Window)
 import XMonad.Core
 import qualified XMonad.StackSet as W
-import XMonad.Hooks.DynamicLog
+import XMonad.Hooks.StatusBar.PP
+import XMonad.Hooks.UrgencyHook (readUrgents)
 import XMonad.Util.Font (Align (..))
-import XMonad.Util.NamedWindows (getName)
+import XMonad.Util.NamedWindows (getName, getNameWMClass)
 
 import Control.Exception as E
-import Data.List (find, isPrefixOf, isSuffixOf)
-import Data.Maybe (fromMaybe)
+import XMonad.Prelude (find, fromMaybe, isPrefixOf, isSuffixOf, WindowScreen)
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
 import System.Directory (getDirectoryContents)
 import System.IO (hGetLine)
@@ -66,40 +74,39 @@ econst :: Monad m => a -> IOException -> m a
 econst = const . return
 
 -- $usage
--- Use this module by importing it into your @~\/.xmonad\/xmonad.hs@:
+-- Use this module by importing it into your @xmonad.hs@:
 --
 -- > import XMonad.Util.Loggers
 --
 -- Then, add one or more loggers to the
--- 'XMonad.Hooks.DynamicLog.ppExtras' field of your
--- 'XMonad.Hooks.DynamicLoc.PP', possibly with extra formatting .
+-- 'XMonad.Hooks.StatusBar.PP.ppExtras' field of your
+-- "XMonad.Hooks.StatusBar.PP", possibly with extra formatting .
 -- For example:
 --
--- >   -- display load averages and a pithy quote along with xmonad status.
--- >   , logHook = dynamicLogWithPP $ def {
--- >                  ppExtras = [ padL loadAvg, logCmd "fortune -n 40 -s" ]
--- >                }
+-- > myPP = def {
+-- >            ppExtras = [ padL loadAvg, logCmd "fortune -n 40 -s" ]
+-- >         }
 -- >   -- gives something like " 3.27 3.52 3.26 Drive defensively.  Buy a tank."
 --
 -- See the formatting section below for another example using
 -- a @where@ block to define some formatted loggers for a top-level
--- @myLogHook@.
+-- @myPP@.
 --
 -- Loggers are named either for their function, as in 'battery',
 -- 'aumixVolume', and 'maildirNew', or are prefixed with \"log\" when
 -- making use of other functions or by analogy with the pp* functions.
--- For example, the logger version of 'XMonad.Hooks.DynamicLog.ppTitle'
+-- For example, the logger version of 'XMonad.Hooks.StatusBar.PP.ppTitle'
 -- is 'logTitle', and 'logFileCount' loggerizes the result of file
 -- counting code.
 --
 -- Formatting utility names are generally as short as possible and
 -- carry the suffix \"L\". For example, the logger version of
--- 'XMonad.Hooks.DynamicLog.shorten' is 'shortenL'.
+-- 'XMonad.Hooks.StatusBar.PP.shorten' is 'shortenL'.
 --
 -- Of course, there is nothing really special about these so-called
 -- \"loggers\": they are just @X (Maybe String)@ actions.  So you can
 -- use them anywhere you would use an @X (Maybe String)@, not just
--- with DynamicLog.
+-- with PP.
 --
 -- Additional loggers welcome!
 
@@ -171,9 +178,171 @@ maildirNew mdir = logFileCount (mdir ++ "/new/") (not . isPrefixOf ".")
 -- example you can loggerize the number of windows on each workspace, or
 -- titles on other workspaces, or the id of the previously focused workspace....
 
+-- | Internal function to get a wrapped title string from a window
+fetchWindowTitle :: Window -> X String
+fetchWindowTitle = fmap show . getName
+
 -- | Get the title (name) of the focused window.
 logTitle :: Logger
-logTitle = withWindowSet $ traverse (fmap show . getName) . W.peek
+logTitle = logWindowInfoFocusedWindow fetchWindowTitle
+
+-- | Get the titles of all windows on the visible workspace of the given
+-- screen and format them according to the given functions.
+--
+-- ==== __Example__
+--
+-- > myXmobarPP :: X PP
+-- > myXmobarPP = pure $ def
+-- >   { ppOrder  = [ws, l, _, wins] -> [ws, l, wins]
+-- >   , ppExtras = [logTitles formatFocused formatUnfocused]
+-- >   }
+-- >  where
+-- >   formatFocused   = wrap "[" "]" . xmobarColor "#ff79c6" "" . shorten 50 . xmobarStrip
+-- >   formatUnfocused = wrap "(" ")" . xmobarColor "#bd93f9" "" . shorten 30 . xmobarStrip
+--
+logTitlesOnScreen
+  :: ScreenId           -- ^ Screen to log the titles on
+  -> (String -> String) -- ^ Formatting for the focused   window
+  -> (String -> String) -- ^ Formatting for the unfocused window
+  -> Logger
+logTitlesOnScreen sid formatFoc formatUnfoc =
+  logWindowInfoOnScreen fetchWindowTitle sid formatFoc formatUnfoc formatUnfoc
+
+-- | Like 'logTitlesOnScreen' but with support for urgent windows.  To
+-- be used with "XMonad.Hooks.UrgencyHook".
+logTitlesOnScreen' :: ScreenId -> TitlesFormat -> Logger
+logTitlesOnScreen' sid (TitlesFormat formatFoc formatUnfoc formatUrg) =
+  logWindowInfoOnScreen fetchWindowTitle sid formatFoc formatUnfoc formatUrg
+
+-- | Like 'logTitlesOnScreen', but directly use the "focused" screen
+-- (the one with the currently focused workspace).
+logTitles :: (String -> String) -> (String -> String) -> Logger
+logTitles formatFoc formatUnfoc =
+  logWindowInfoFocusedScreen fetchWindowTitle formatFoc formatUnfoc formatUnfoc
+
+-- | Variant of 'logTitles', but with support for urgent windows.
+logTitles' :: TitlesFormat -> Logger
+logTitles' (TitlesFormat formatFoc formatUnfoc formatUrg) =
+  logWindowInfoFocusedScreen fetchWindowTitle formatFoc formatUnfoc formatUrg
+
+-- | Formatting applied to the titles of certain windows.
+data TitlesFormat = TitlesFormat
+  { focusedFormat   :: String -> String  -- ^ Focused formatting.
+  , unfocusedFormat :: String -> String  -- ^ Unfocused formatting.
+  , urgentFormat    :: String -> String  -- ^ Formatting when urgent.
+  }
+
+-- | How to format these titles by default when using 'logTitles'' and
+-- 'logTitlesOnScreen''.
+instance Default TitlesFormat where
+  def = TitlesFormat
+    { focusedFormat   = xmobarFocusedFormat
+    , unfocusedFormat = xmobarWsFormat
+    , urgentFormat    = xmobarUrgentFormat
+    }
+
+-- | Internal function to get a wrapped classname string from a window
+fetchWindowClassname :: Window -> X String
+fetchWindowClassname = fmap show . getNameWMClass
+
+-- | Get the classname of the focused window.
+logClassname :: Logger
+logClassname = logWindowInfoFocusedWindow fetchWindowClassname
+
+-- | Get the classnames of all windows on the visible workspace of the given
+-- screen and format them according to the given functions.
+logClassnamesOnScreen
+  :: ScreenId           -- ^ Screen to log the classnames on
+  -> (String -> String) -- ^ Formatting for the focused window
+  -> (String -> String) -- ^ Formatting for the unfocused window
+  -> Logger
+logClassnamesOnScreen sid formatFoc formatUnfoc =
+  logWindowInfoOnScreen fetchWindowClassname sid formatFoc formatUnfoc formatUnfoc
+
+-- | Like 'logClassnamesOnScreen' but with support for urgent windows.  To
+-- be used with "XMonad.Hooks.UrgencyHook".
+logClassnamesOnScreen' :: ScreenId -> ClassnamesFormat -> Logger
+logClassnamesOnScreen' sid (ClassnamesFormat formatFoc formatUnfoc formatUrg) =
+  logWindowInfoOnScreen fetchWindowClassname sid formatFoc formatUnfoc formatUrg
+
+-- | Like 'logClassnamesOnScreen', but directly use the "focused" screen
+-- (the one with the currently focused workspace).
+logClassnames :: (String -> String) -> (String -> String) -> Logger
+logClassnames formatFoc formatUnfoc =
+  logWindowInfoFocusedScreen fetchWindowClassname formatFoc formatUnfoc formatUnfoc
+
+-- | Variant of 'logClassnames', but with support for urgent windows.
+logClassnames' :: ClassnamesFormat -> Logger
+logClassnames' (ClassnamesFormat formatFoc formatUnfoc formatUrg) =
+  logWindowInfoFocusedScreen fetchWindowClassname formatFoc formatUnfoc formatUrg
+
+-- | Formatting applied to the classnames of certain windows.
+data ClassnamesFormat = ClassnamesFormat
+  { focusedFormatClassname   :: String -> String  -- ^ Focused formatting.
+  , unfocusedFormatClassname :: String -> String  -- ^ Unfocused formatting.
+  , urgentFormatClassname    :: String -> String  -- ^ Formatting when urgent.
+  }
+
+-- | How to format these classnames by default when using 'logClassnames'' and
+-- 'logClassnamesOnScreen''.
+instance Default ClassnamesFormat where
+  def = ClassnamesFormat
+    { focusedFormatClassname   = xmobarFocusedFormat
+    , unfocusedFormatClassname = xmobarWsFormat
+    , urgentFormatClassname    = xmobarUrgentFormat
+    }
+
+-- | Internal function to get the specified window information for all windows on
+-- the visible workspace of the given screen and format them according to the
+-- given functions.
+logWindowInfoOnScreen
+  :: (Window -> X String)
+  -> ScreenId
+  -> (String -> String)
+  -> (String -> String)
+  -> (String -> String)
+  -> Logger
+logWindowInfoOnScreen getWindowInfo sid formatFoc formatUnfoc formatUrg =
+  (`withScreen` sid) $ \screen -> do
+    let focWin = fmap W.focus . W.stack . W.workspace $ screen
+    urgWins <- readUrgents
+    logWindowInfoOnScreenWorker getWindowInfo screen $ \win name ->
+      if | Just win == focWin -> formatFoc   name
+         | win `elem` urgWins -> formatUrg   name
+         | otherwise          -> formatUnfoc name
+
+-- | Internal helper function for 'logWindowInfoOnScreen'.
+logWindowInfoOnScreenWorker
+  :: (Window -> X String)
+  -> WindowScreen
+  -> (Window -> String -> String)
+  -> Logger
+logWindowInfoOnScreenWorker getWindowInfo screen logger = do
+  let wins = maybe [] W.integrate . W.stack . W.workspace $ screen
+  winNames <- traverse getWindowInfo wins
+  pure . Just . unwords $ zipWith logger wins winNames
+
+-- | Internal. Like 'logWindowInfoOnScreen', but directly use the "focused" screen
+-- (the one with the currently focused workspace).
+logWindowInfoFocusedScreen
+  :: (Window -> X String)
+  -> (String -> String)
+  -> (String -> String)
+  -> (String -> String)
+  -> Logger
+logWindowInfoFocusedScreen getWindowInfo formatFoc formatUnfoc formatUrg = do
+  sid <- gets $ W.screen . W.current . windowset
+  logWindowInfoOnScreen getWindowInfo sid formatFoc formatUnfoc formatUrg
+
+-- | Internal function to get the specified information for the currently focused window
+logWindowInfoFocusedWindow :: (Window -> X String) -> Logger
+logWindowInfoFocusedWindow getWindowInfo = withWindowSet $ traverse getWindowInfo . W.peek
+
+-- | Internal formatting helpers
+xmobarWsFormat, xmobarFocusedFormat, xmobarUrgentFormat :: String -> String
+xmobarWsFormat      = xmobarRaw . shorten 30 . xmobarStrip
+xmobarFocusedFormat = wrap "[" "]" . xmobarWsFormat
+xmobarUrgentFormat  = wrap "!" "!" . xmobarWsFormat
 
 -- | Get the name of the current layout.
 logLayout :: Logger
@@ -221,9 +390,18 @@ logWhenActive n l = do
 
 -- | Get the title (name) of the focused window, on the given screen.
 logTitleOnScreen :: ScreenId -> Logger
-logTitleOnScreen =
+logTitleOnScreen = logWindowInfoFocusedWindowOnScreen fetchWindowTitle
+
+-- | Get the classname of the focused window, on the given screen.
+logClassnameOnScreen :: ScreenId -> Logger
+logClassnameOnScreen = logWindowInfoFocusedWindowOnScreen fetchWindowClassname
+
+-- | Internal function to get the specified information for the focused window,
+-- on the given screen.
+logWindowInfoFocusedWindowOnScreen :: (Window -> X String) -> ScreenId -> Logger
+logWindowInfoFocusedWindowOnScreen getWindowInfo =
   withScreen
-    $ traverse (fmap show . getName)
+    $ traverse getWindowInfo
     . (W.focus <$>)
     . W.stack
     . W.workspace
@@ -237,9 +415,6 @@ logLayoutOnScreen :: ScreenId -> Logger
 logLayoutOnScreen =
   withScreen $ logConst . description . W.layout . W.workspace
 
--- | A shortcut to a screen
-type WindowScreen = W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail
-
 -- | A helper function to create screen-specific loggers.
 withScreen :: (WindowScreen -> Logger) -> ScreenId -> Logger
 withScreen f n = do
@@ -250,12 +425,12 @@ withScreen f n = do
 
 -- $format
 -- Combine logger formatting functions to make your
--- 'XMonad.Hooks.DynamicLog.ppExtras' more colorful and readable.
+-- 'XMonad.Hooks.StatusBar.PP.ppExtras' more colorful and readable.
 -- (For convenience, you can use '<$>' instead of \'.\' or \'$\' in hard to read
 -- formatting lines.
 -- For example:
 --
--- > myLogHook = dynamicLogWithPP def {
+-- > myPP = def {
 -- >     -- skipped
 -- >     , ppExtras = [lLoad, lTitle, logSp 3, wrapL "[" "]" $ date "%a %d %b"]
 -- >     , ppOrder = \(ws:l:_:xs) -> [l,ws] ++ xs
@@ -267,6 +442,9 @@ withScreen f n = do
 -- >
 -- >     lLoad = dzenColorL "#6A5ACD" "" . wrapL loadIcon "   " . padL $ loadAvg
 -- >     loadIcon = " ^i(/home/me/.dzen/icons/load.xbm)"
+--
+-- For more information on how to add the pretty-printer to your status bar, please
+-- check "XMonad.Hooks.StatusBar".
 --
 -- Note: When applying 'shortenL' or 'fixedWidthL' to logger strings
 -- containing colors or other formatting commands, apply the formatting

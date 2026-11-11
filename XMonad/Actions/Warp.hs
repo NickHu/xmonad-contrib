@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.Warp
+-- Description :  Warp the pointer to a given window or screen.
 -- Copyright   :  (c) daniel@wagner-home.com
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -22,12 +23,12 @@ module XMonad.Actions.Warp (
                            warpToWindow
                           ) where
 
-import Data.List
+import XMonad.Prelude
 import XMonad
 import XMonad.StackSet as W
 
 {- $usage
-You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+You can use this module with the following in your @xmonad.hs@:
 
 > import XMonad.Actions.Warp
 
@@ -44,7 +45,7 @@ Note that warping to a particular screen may change the focus.
 -}
 
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 
 data Corner = UpperLeft | UpperRight | LowerLeft | LowerRight
@@ -90,18 +91,16 @@ warp w x y = withDisplay $ \d -> io $ warpPointer d none w 0 0 0 0 x y
 -- | Warp the pointer to a given position relative to the currently
 --   focused window.  Top left = (0,0), bottom right = (1,1).
 warpToWindow :: Rational -> Rational -> X ()
-warpToWindow h v =
-    withDisplay $ \d ->
-        withFocused $ \w -> do
-            wa <- io $ getWindowAttributes d w
-            warp w (fraction h (wa_width wa)) (fraction v (wa_height wa))
+warpToWindow h v = withDisplay $ \d -> withFocused $ \w ->
+  withWindowAttributes d w $ \wa ->
+    warp w (fraction h (wa_width wa)) (fraction v (wa_height wa))
 
 -- | Warp the pointer to the given position (top left = (0,0), bottom
 --   right = (1,1)) on the given screen.
 warpToScreen :: ScreenId -> Rational -> Rational -> X ()
 warpToScreen n h v = do
     root <- asks theRoot
-    (StackSet {current = x, visible = xs}) <- gets windowset
+    StackSet{current = x, visible = xs} <- gets windowset
     whenJust (fmap (screenRect . W.screenDetail) . find ((n==) . W.screen) $ x : xs)
         $ \r ->
             warp root (rect_x r + fraction h (rect_width  r))

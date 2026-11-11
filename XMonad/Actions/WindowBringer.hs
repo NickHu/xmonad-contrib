@@ -2,6 +2,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.WindowBringer
+-- Description :  Dmenu operations to bring windows to you, and bring you to windows.
 -- Copyright   :  Devin Mullins <me@twifkak.com>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -21,9 +22,12 @@ module XMonad.Actions.WindowBringer (
                     WindowBringerConfig(..),
                     gotoMenu, gotoMenuConfig, gotoMenu', gotoMenuArgs, gotoMenuArgs',
                     bringMenu, bringMenuConfig, bringMenu', bringMenuArgs, bringMenuArgs',
-                    windowMap, windowAppMap, windowMap', bringWindow, actionMenu
+                    copyMenu, copyMenuConfig, copyMenu', copyMenuArgs, copyMenuArgs',
+                    windowMap, windowAppMap, windowMap', bringWindow, actionMenu,
+                    defaultDMenuArgs
                    ) where
 
+import Control.Monad
 import qualified Data.Map as M
 
 import qualified XMonad.StackSet as W
@@ -31,10 +35,11 @@ import XMonad
 import qualified XMonad as X
 import XMonad.Util.Dmenu (menuMapArgs)
 import XMonad.Util.NamedWindows (getName, getNameWMClass)
+import XMonad.Actions.CopyWindow (copyWindow)
 
 -- $usage
 --
--- Import the module into your @~\/.xmonad\/xmonad.hs@:
+-- Import the module into your @xmonad.hs@:
 --
 -- > import XMonad.Actions.WindowBringer
 --
@@ -42,20 +47,28 @@ import XMonad.Util.NamedWindows (getName, getNameWMClass)
 --
 -- > , ((modm .|. shiftMask, xK_g     ), gotoMenu)
 -- > , ((modm .|. shiftMask, xK_b     ), bringMenu)
+-- > , ((modm .|. shiftMask, xK_y     ), copyMenu)
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
+
+-- | The default arguments passed to dmenu. You may want to use this with
+--   the *MenuArgs functions.
+defaultDMenuArgs :: [String]
+defaultDMenuArgs = ["-i"]
 
 data WindowBringerConfig = WindowBringerConfig
     { menuCommand :: String -- ^ The shell command that will handle window selection
     , menuArgs :: [String] -- ^ Arguments to be passed to menuCommand
     , windowTitler :: X.WindowSpace -> Window -> X String -- ^ A function that produces window titles given a workspace and a window
+    , windowFilter :: Window -> X Bool -- ^ Filter function to decide which windows to consider
     }
 
 instance Default WindowBringerConfig where
     def = WindowBringerConfig{ menuCommand = "dmenu"
-                             , menuArgs = ["-i"]
+                             , menuArgs = defaultDMenuArgs
                              , windowTitler = decorateName
+                             , windowFilter = \_ -> return True
                              }
 
 -- | Pops open a dmenu with window titles. Choose one, and you will be
@@ -86,10 +99,41 @@ gotoMenu' cmd = gotoMenuConfig def { menuArgs = [], menuCommand = cmd }
 gotoMenuArgs' :: String -> [String] -> X ()
 gotoMenuArgs' cmd args = gotoMenuConfig def { menuCommand = cmd, menuArgs = args }
 
+-- | Pops open a dmenu with window titles. Choose one, and it will be copied into your current workspace.
+copyMenu :: X ()
+copyMenu = copyMenuArgs defaultDMenuArgs
+
+-- | Pops open a dmenu with window titles. Choose one, and it will be
+--   copied into your current workspace. This version
+--   accepts a configuration object.
+copyMenuConfig :: WindowBringerConfig -> X ()
+copyMenuConfig wbConfig = actionMenu wbConfig copyBringWindow
+
+-- | Pops open a dmenu with window titles. Choose one, and it will be
+--   copied into your current workspace. This version
+--   takes a list of arguments to pass to dmenu.
+copyMenuArgs :: [String] -> X ()
+copyMenuArgs args = copyMenuConfig def { menuArgs = args }
+
+-- | Pops open an application with window titles given over stdin. Choose one,
+--   and it will be copied into your current workspace.
+copyMenu' :: String -> X ()
+copyMenu' cmd = copyMenuConfig def { menuArgs = [], menuCommand = cmd }
+
+-- | Pops open an application with window titles given over stdin. Choose one,
+--   and it will be copied into your current
+--   workspace. This version allows arguments to the chooser to be specified.
+copyMenuArgs' :: String -> [String] -> X ()
+copyMenuArgs' cmd args = copyMenuConfig def { menuArgs = args, menuCommand = cmd }
+
+-- | Brings a copy of the specified window into the current workspace.
+copyBringWindow :: Window -> X.WindowSet -> X.WindowSet
+copyBringWindow w ws = copyWindow w (W.currentTag ws) ws
+
 -- | Pops open a dmenu with window titles. Choose one, and it will be
 --   dragged, kicking and screaming, into your current workspace.
 bringMenu :: X ()
-bringMenu = bringMenuArgs def
+bringMenu = bringMenuArgs defaultDMenuArgs
 
 -- | Pops open a dmenu with window titles. Choose one, and it will be
 --   dragged, kicking and screaming, into your current workspace. This version
@@ -122,11 +166,8 @@ bringWindow w ws = W.shiftWin (W.currentTag ws) w ws
 -- | Calls dmenuMap to grab the appropriate Window, and hands it off to action
 --   if found.
 actionMenu :: WindowBringerConfig -> (Window -> X.WindowSet -> X.WindowSet) -> X ()
-actionMenu WindowBringerConfig{ menuCommand = cmd
-                              , menuArgs = args
-                              , windowTitler = titler
-                              } action
-    = windowMap' titler >>= menuMapFunction >>= flip X.whenJust (windows . action)
+actionMenu c@WindowBringerConfig{ menuCommand = cmd, menuArgs = args } action =
+  windowMap' c >>= menuMapFunction >>= flip X.whenJust (windows . action)
     where
       menuMapFunction :: M.Map String a -> X (Maybe a)
       menuMapFunction = menuMapArgs cmd args
@@ -134,19 +175,20 @@ actionMenu WindowBringerConfig{ menuCommand = cmd
 
 -- | A map from window names to Windows.
 windowMap :: X (M.Map String Window)
-windowMap = windowMap' decorateName
+windowMap = windowMap' def
 
 -- | A map from application executable names to Windows.
 windowAppMap :: X (M.Map String Window)
-windowAppMap = windowMap' decorateAppName
+windowAppMap = windowMap' def { windowTitler = decorateAppName }
 
 -- | A map from window names to Windows, given a windowTitler function.
-windowMap' :: (X.WindowSpace -> Window -> X String) -> X (M.Map String Window)
-windowMap' titler = do
-  ws <- gets X.windowset
-  M.fromList . concat <$> mapM keyValuePairs (W.workspaces ws)
- where keyValuePairs ws = mapM (keyValuePair ws) $ W.integrate' (W.stack ws)
-       keyValuePair ws w = flip (,) w <$> titler ws w
+windowMap' :: WindowBringerConfig -> X (M.Map String Window)
+windowMap' WindowBringerConfig{ windowTitler = titler, windowFilter = include } = do
+  windowSet <- gets X.windowset
+  M.fromList . concat <$> mapM keyValuePairs (W.workspaces windowSet)
+ where keyValuePairs ws = let wins = W.integrate' (W.stack ws)
+                           in mapM (keyValuePair ws) =<< filterM include wins
+       keyValuePair ws w = (, w) <$> titler ws w
 
 -- | Returns the window name as will be listed in dmenu.
 --   Tagged with the workspace ID, to guarantee uniqueness, and to let the user
@@ -157,7 +199,7 @@ decorateName ws w = do
   return $ name ++ " [" ++ W.tag ws ++ "]"
 
 -- | Returns the window name as will be listed in dmenu.  This will
--- return the executable name of the window along with it's workspace
+-- return the executable name of the window along with its workspace
 -- ID.
 decorateAppName :: X.WindowSpace -> Window -> X String
 decorateAppName ws w = do

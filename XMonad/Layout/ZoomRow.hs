@@ -1,11 +1,12 @@
 {-# OPTIONS_GHC -fno-warn-name-shadowing -fno-warn-unused-binds #-}
 {-# LANGUAGE FlexibleInstances, MultiParamTypeClasses
-  , PatternGuards, DeriveDataTypeable, ExistentialQuantification
+  , PatternGuards, ExistentialQuantification
   , FlexibleContexts #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.ZoomRow
+-- Description :  Row layout with individually resizable elements.
 -- Copyright   :  Quentin Moser <moserq@gmail.com>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -35,12 +36,11 @@ module XMonad.Layout.ZoomRow ( -- * Usage
                              ) where
 
 import XMonad
+import XMonad.Prelude (fromMaybe, fi)
 import qualified XMonad.StackSet as W
 
 import XMonad.Util.Stack
-import XMonad.Layout.Decoration (fi)
 
-import Data.Maybe (fromMaybe)
 import Control.Arrow (second)
 
 -- $usage
@@ -49,7 +49,7 @@ import Control.Arrow (second)
 -- and decreased, and a window can be set to use the whole available
 -- space whenever it has focus.
 --
--- You can use this module by including  the following in your @~\/.xmonad/xmonad.hs@:
+-- You can use this module by including  the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.ZoomRow
 --
@@ -69,8 +69,9 @@ import Control.Arrow (second)
 -- >   -- (Un)Maximize the focused window
 -- > , ((modMask             , xK_f    ), sendMessage ToggleZoomFull)
 --
--- For more information on editing your layout hook and key bindings,
--- see "XMonad.Doc.Extending".
+-- For more information on editing your layoutHook and key bindings,
+-- see <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>
+-- and "XMonad.Doc.Extending".
 
 -- * Creation functions
 
@@ -106,7 +107,7 @@ data ZoomRow f a = ZC { zoomEq ::  f a
                           -- ^ Function to compare elements for
                           -- equality, a real Eq instance might
                           -- not be what you want in some cases
-                      , zoomRatios :: (Zipper (Elt a))
+                      , zoomRatios :: Zipper (Elt a)
                           -- ^ Element specs. The zipper is so we
                           -- know what the focus is when we handle
                           --  a message
@@ -163,7 +164,7 @@ data ZoomMessage = Zoom Rational
                  | ZoomFullToggle
                  -- ^ Toggle whether the focused window should
                  -- occupy all available space when it has focus
-  deriving (Typeable, Show)
+  deriving (Show)
 
 instance Message ZoomMessage
 
@@ -237,7 +238,7 @@ instance (EQF f a, Show a, Read a, Show (f a), Read (f a), Typeable f)
                         helper (Right a:as) (Right b:bs) = a `sameAs` b && as `helper` bs
                         helper (Left a:as) (Left b:bs) = a `sameAs` b && as `helper` bs
                         helper _ _ = False
-                        E a1 r1 b1 `sameAs` E a2 r2 b2 = (eq f a1 a2) && (r1 == r2) && (b1 == b2)
+                        E a1 r1 b1 `sameAs` E a2 r2 b2 = eq f a1 a2 && (r1 == r2) && (b1 == b2)
 
     pureMessage (ZC f zelts) sm | Just (ZoomFull False) <- fromMessage sm
                                 , Just (E a r True) <- getFocusZ zelts

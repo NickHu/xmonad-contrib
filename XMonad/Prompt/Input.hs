@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Prompt.Input
+-- Description :  Prompt the user for input and pass it along to some other action.
 -- Copyright   :  (c) 2007 Brent Yorgey
 -- License     :  BSD-style (see LICENSE)
 --
@@ -55,7 +56,7 @@ import XMonad.Prompt
 -- create an autocompleting version, like this:
 --
 -- > firingPrompt' = inputPromptWithCompl def "Fire"
--- >                     (mkComplFunFromList employees) ?+ fireEmployee
+-- >                     (mkComplFunFromList def employees) ?+ fireEmployee
 --
 -- Now all he has to do is add a keybinding to @firingPrompt@ (or
 -- @firingPrompt'@), such as
@@ -69,7 +70,7 @@ import XMonad.Prompt
 -- invoked.
 --
 -- (For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".)
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.)
 --
 -- "XMonad.Prompt.Input" is also intended to ease the process of
 -- developing other modules which require user input. For an example
@@ -77,7 +78,7 @@ import XMonad.Prompt
 -- "XMonad.Prompt.Email", which prompts the user for a recipient,
 -- subject, and one-line body, and sends a quick email.
 
-data InputPrompt = InputPrompt String
+newtype InputPrompt = InputPrompt String
 
 instance XPrompt InputPrompt  where
     showXPrompt (InputPrompt s) = s ++ ": "

@@ -15,12 +15,12 @@ ideas:
     "only once" features like avoidStruts, ewmhDesktops
 -}
 
-module XMonad.Config.Monad where
+module XMonad.Config.Monad {-# DEPRECATED "This module does not work." #-} where
 
 import XMonad hiding (terminal, keys)
 import qualified XMonad as X
 import Control.Monad.Writer
-import Data.Monoid
+import XMonad.Prelude
 import Data.Accessor
 import Data.Accessor.Basic hiding (set)
 
@@ -45,5 +45,5 @@ add r x = tell (mkW (r ^: mappend x))
 --
 example :: Config ()
 example = do
-    add layout $ LL [Layout $ Full] -- make this better
+    add layout $ LL [Layout Full] -- make this better
     set terminal "urxvt"

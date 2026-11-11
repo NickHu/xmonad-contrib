@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Prompt.Directory
+-- Description :  A directory prompt for XMonad.
 -- Copyright   :  (C) 2007 Andrea Rossato, David Roundy
 -- License     :  BSD3
 --
@@ -21,7 +22,7 @@ module XMonad.Prompt.Directory (
                              Dir
                               ) where
 
-import Data.List ( sort )
+import XMonad.Prelude ( sort )
 
 import XMonad
 import XMonad.Prompt

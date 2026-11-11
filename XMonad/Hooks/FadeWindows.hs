@@ -1,7 +1,8 @@
-{-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Hooks.FadeWindows
+-- Description :  A more flexible and general compositing interface than FadeInactive.
 -- Copyright   :  Brandon S Allbery KF8NH <allbery.b@gmail.com>
 -- License     :  BSD
 --
@@ -49,6 +50,7 @@ module XMonad.Hooks.FadeWindows (-- * Usage
                                 ) where
 
 import           XMonad.Core
+import           XMonad.Prelude
 import           XMonad.ManageHook                       (liftX)
 import qualified XMonad.StackSet             as W
 
@@ -56,12 +58,10 @@ import           XMonad.Hooks.FadeInactive               (setOpacity
                                                          ,isUnfocused
                                                          )
 
-import           Control.Monad                           (forM_)
 import           Control.Monad.Reader                    (ask
                                                          ,asks)
 import           Control.Monad.State                     (gets)
 import qualified Data.Map                    as M
-import           Data.Monoid
 
 import           Graphics.X11.Xlib.Extras                (Event(..))
 
@@ -96,18 +96,17 @@ import           Graphics.X11.Xlib.Extras                (Event(..))
 --
 -- at the top of @myFadeHook@.
 --
--- This module is best used with "XMonad.Hooks.MoreManageHelpers", which
+-- This module is best used with "XMonad.Hooks.ManageHelpers", which
 -- exports a number of Queries that can be used in either @ManageHook@
 -- or @FadeHook@.
 --
--- Note that you need a compositing manager such as @xcompmgr@,
+-- Note that you need a compositing manager such as @picom@, @xcompmgr@,
 -- @dcompmgr@, or @cairo-compmgr@ for window fading to work.  If you
 -- aren't running a compositing manager, the opacity will be recorded
 -- but won't take effect until a compositing manager is started.
 --
--- For more detailed instructions on editing the 'logHook' see:
---
--- "XMonad.Doc.Extending#The_log_hook_and_external_status_bars"
+-- For more detailed instructions on editing the 'logHook' see
+-- <https://xmonad.org/TUTORIAL.html#make-xmonad-and-xmobar-talk-to-each-other the tutorial>.
 --
 -- For more detailed instructions on editing the 'handleEventHook',
 -- see:
@@ -138,13 +137,12 @@ import           Graphics.X11.Xlib.Extras                (Event(..))
 -- to make it obay the monoid laws
 data Opacity = Opacity Rational | OEmpty
 
+instance Semigroup Opacity where
+  r <> OEmpty = r
+  _ <> r      = r
+
 instance Monoid Opacity where
   mempty                  = OEmpty
-  r      `mappend` OEmpty = r
-  _      `mappend` r      = r
-
-instance Semigroup Opacity where
-  (<>) = mappend
 
 -- | A FadeHook is similar to a ManageHook, but records window opacity.
 type FadeHook = Query Opacity
@@ -172,17 +170,17 @@ opacity :: Rational -- ^ The opacity of a window as a fraction.
 opacity =  doS . Opacity . clampRatio
 
 fadeTo, translucence, fadeBy :: Rational -> FadeHook
--- ^ An alias for 'transparency'.
+-- | An alias for 'transparency'.
 fadeTo       = transparency
--- ^ An alias for 'transparency'.
+-- | An alias for 'transparency'.
 translucence = transparency
--- ^ An alias for 'transparency'.
+-- | An alias for 'opacity'.
 fadeBy       = opacity
 
 invisible, solid :: FadeHook
--- ^ An alias for 'transparent'.
+-- | An alias for 'transparent'.
 invisible    = transparent
--- ^ An alias for 'opaque'.
+-- | An alias for 'opaque'.
 solid        = opaque
 
 -- | Like 'doF', but usable with 'ManageHook'-like hooks that
@@ -218,10 +216,10 @@ fadeWindowsLogHook h =  withWindowSet $ \s -> do
 
 -- | A 'handleEventHook' to handle fading and unfading of newly mapped
 --   or unmapped windows; this avoids problems with layouts such as
---   "XMonad.Layout.Full" or "XMonad.Layout.Tabbed".  This hook may
+--   'XMonad.Layout.Full' or "XMonad.Layout.Tabbed".  This hook may
 --   also be useful with "XMonad.Hooks.FadeInactive".
 fadeWindowsEventHook                     :: Event -> X All
-fadeWindowsEventHook (MapNotifyEvent {}) =
+fadeWindowsEventHook MapNotifyEvent{} =
   -- we need to run the fadeWindowsLogHook.  only one way...
   asks config >>= logHook >> return (All True)
 fadeWindowsEventHook _                   =  return (All True)

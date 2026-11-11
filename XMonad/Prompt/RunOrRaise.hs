@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Prompt.RunOrRaise
+-- Description :  A prompt to run a program, open a file, or raise a running program.
 -- Copyright   :  (C) 2008 Justin Bogner
 -- License     :  BSD3
 --
@@ -21,20 +22,20 @@ module XMonad.Prompt.RunOrRaise
     ) where
 
 import XMonad hiding (config)
+import XMonad.Prelude
 import XMonad.Prompt
 import XMonad.Prompt.Shell
 import XMonad.Actions.WindowGo (runOrRaise)
 import XMonad.Util.Run (runProcessWithInput)
 
 import Control.Exception as E
-import Control.Applicative (liftA2)
-import System.Directory (doesDirectoryExist, doesFileExist, executable, getPermissions)
+import System.Directory (doesDirectoryExist, doesFileExist, executable, findExecutable, getPermissions)
 
 econst :: Monad m => a -> IOException -> m a
 econst = const . return
 
 {- $usage
-1. In your @~\/.xmonad\/xmonad.hs@:
+1. In your @xmonad.hs@:
 
 > import XMonad.Prompt
 > import XMonad.Prompt.RunOrRaise
@@ -44,7 +45,8 @@ econst = const . return
 >   , ((modm .|. controlMask, xK_x), runOrRaisePrompt def)
 
 For detailed instruction on editing the key binding see
-"XMonad.Doc.Extending#Editing_key_bindings". -}
+<https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
+-}
 
 data RunOrRaisePrompt = RRP
 instance XPrompt RunOrRaisePrompt where
@@ -59,9 +61,14 @@ open path = io (isNormalFile path) >>= \b ->
             then spawn $ "xdg-open \"" ++ path ++ "\""
             else uncurry runOrRaise . getTarget $ path
     where
-      isNormalFile f = exists f >>= \e -> if e then notExecutable f else return False
-      exists f = or <$> sequence [doesFileExist f,doesDirectoryExist f]
+      isNormalFile f = do
+          notCommand <- isNothing <$> findExecutable f -- not a command (executable in $PATH)
+          exists <- or <$> sequence [doesDirExist f, doesFileExist f]
+          case (notCommand, exists) of
+              (True, True) -> notExecutable f -- not executable as a file in current dir
+              _            -> pure False
       notExecutable = fmap (not . executable) . getPermissions
+      doesDirExist f = ("/" `isSuffixOf` f &&) <$> doesDirectoryExist f
       getTarget x = (x,isApp x)
 
 isApp :: String -> Query Bool
@@ -77,5 +84,5 @@ pid = ask >>= (\w -> liftX $ withDisplay $ \d -> getPID d w)
     where getPID d w = getAtom "_NET_WM_PID" >>= \a -> io $
                        fmap getPID' (getWindowProperty32 d a w)
           getPID' (Just (x:_)) = fromIntegral x
-          getPID' (Just [])     = -1
-          getPID' (Nothing)     = -1
+          getPID' (Just [])    = -1
+          getPID' Nothing      = -1

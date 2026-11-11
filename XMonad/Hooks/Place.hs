@@ -1,6 +1,8 @@
+{-# LANGUAGE TupleSections #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Hooks.Place
+-- Description :  Automatic placement of floating windows.
 -- Copyright   :  Quentin Moser <moserq@gmail.com>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -34,18 +36,14 @@ module XMonad.Hooks.Place   ( -- * Usage
 
 
 import XMonad
+import XMonad.Prelude
 import qualified XMonad.StackSet as S
 
 import XMonad.Layout.WindowArranger
 import XMonad.Actions.FloatKeys
-import XMonad.Util.XUtils
 
 import qualified Data.Map as M
 import Data.Ratio ((%))
-import Data.List (sortBy, minimumBy, partition)
-import Data.Maybe (fromMaybe, catMaybes)
-import Data.Monoid (Endo(..))
-import Control.Monad (guard, join)
 import Control.Monad.Trans (lift)
 
 -- $usage
@@ -53,17 +51,17 @@ import Control.Monad.Trans (lift)
 -- floating windows at appropriate positions on the screen, as well
 -- as an 'X' action to manually trigger repositioning.
 --
--- You can use this module by including the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module by including the following in your @xmonad.hs@:
 --
 -- > import XMonad.Hooks.Place
 --
 -- and adding 'placeHook' to your 'manageHook', for example:
 --
 -- > main = xmonad $ def { manageHook = placeHook simpleSmart
--- >                                    <+> manageHook def }
+-- >                                    <> manageHook def }
 --
 -- Note that 'placeHook' should be applied after most other hooks, especially hooks
--- such as 'doFloat' and 'doShift'. Since hooks combined with '<+>' are applied from
+-- such as 'doFloat' and 'doShift'. Since hooks combined with '<>' are applied from
 -- right to left, this means that 'placeHook' should be the /first/ hook in your chain.
 --
 -- You can also define a key to manually trigger repositioning with 'placeFocused' by
@@ -166,16 +164,16 @@ placeFocused p = withFocused $ \window -> do
 
                      -- use X.A.FloatKeys if the window is floating, send
                      -- a WindowArranger message otherwise.
-                   case elem window floats of
-                     True -> keysMoveWindowTo (x', y') (0, 0) window
-                     False -> sendMessage $ SetGeometry r'
+                   if window `elem` floats
+                     then keysMoveWindowTo (x', y') (0, 0) window
+                     else sendMessage $ SetGeometry r'
 
 
 -- | Hook to automatically place windows when they are created.
 placeHook :: Placement -> ManageHook
 placeHook p = do window <- ask
                  r <- Query $ lift $ getWindowRectangle window
-                 allRs <- Query $ lift $ getAllRectangles
+                 allRs <- Query $ lift getAllRectangles
                  pointer <- Query $ lift $ getPointer window
 
                  return $ Endo $ \theWS -> fromMaybe theWS $
@@ -188,21 +186,22 @@ placeHook p = do window <- ask
                         -- spawned. Each of them also needs an associated screen
                         -- rectangle; for hidden workspaces, we use the current
                         -- workspace's screen.
-                      let infos = filter ((window `elem`) . stackContents . S.stack . fst)
+                      let infos = find ((window `elem`) . stackContents . S.stack . fst)
                                      $ [screenInfo $ S.current theWS]
-                                        ++ (map screenInfo $ S.visible theWS)
-                                        ++ zip (S.hidden theWS) (repeat currentRect)
+                                        ++ map screenInfo (S.visible theWS)
+                                        ++ map (, currentRect) (S.hidden theWS)
 
-                      guard(not $ null infos)
+                      case infos of
+                        Nothing   -> empty
+                        Just info -> do
+                          let (workspace, screen) = info
+                              rs = mapMaybe (`M.lookup` allRs)
+                                   $ organizeClients workspace window floats
+                              r' = purePlaceWindow p screen rs pointer r
+                              newRect = r2rr screen r'
+                              newFloats = M.insert window newRect (S.floating theWS)
 
-                      let (workspace, screen) = head infos
-                          rs = catMaybes $ map (flip M.lookup allRs)
-                               $ organizeClients workspace window floats
-                          r' = purePlaceWindow p screen rs pointer r
-                          newRect = r2rr screen r'
-                          newFloats = M.insert window newRect (S.floating theWS)
-
-                      return $ theWS { S.floating = newFloats }
+                          return $ theWS { S.floating = newFloats }
 
 
 placeWindow :: Placement -> Window
@@ -225,7 +224,7 @@ purePlaceWindow :: Placement -- ^ The placement strategy
                 -> Rectangle -- ^ The window to be placed
                 -> Rectangle
 purePlaceWindow (Bounds (t,r,b,l) p') (Rectangle sx sy sw sh) rs p w
-  = let s' = (Rectangle (sx + fi l) (sy + fi t) (sw - l - r) (sh - t - b))
+  = let s' = Rectangle (sx + fi l) (sy + fi t) (sw - l - r) (sh - t - b)
     in checkBounds s' $ purePlaceWindow p' s' rs p w
 
 purePlaceWindow (Fixed ratios) s _ _ w = placeRatio ratios s w
@@ -279,7 +278,7 @@ stackContents :: Maybe (S.Stack w) -> [w]
 stackContents = maybe [] S.integrate
 
 screenInfo :: S.Screen i l a sid ScreenDetail -> (S.Workspace i l a, Rectangle)
-screenInfo (S.Screen { S.workspace = ws, S.screenDetail = (SD s)}) = (ws, s)
+screenInfo S.Screen{ S.workspace = ws, S.screenDetail = (SD s)} = (ws, s)
 
 getWindowRectangle :: Window -> X Rectangle
 getWindowRectangle window
@@ -329,8 +328,7 @@ getNecessaryData :: Window
 getNecessaryData window ws floats
   = do r <- getWindowRectangle window
 
-       rs <- return (organizeClients ws window floats)
-             >>= mapM getWindowRectangle
+       rs <- mapM getWindowRectangle (organizeClients ws window floats)
 
        pointer <- getPointer window
 

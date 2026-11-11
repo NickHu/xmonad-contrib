@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.Hacks
+-- Description :  A collection of small fixes and utilities with possibly hacky implementations.
 -- Copyright   :  (c) 2020 Leon Kowarschick
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -33,12 +34,22 @@ module XMonad.Util.Hacks (
   -- $raiseTrayer
   trayerAboveXmobarEventHook,
   trayAbovePanelEventHook,
+
+  -- * Inform xmobar when trays (e.g. trayer) change width
+  -- $padTrayer
+  trayerPaddingXmobarEventHook,
+  trayPaddingXmobarEventHook,
+  trayPaddingEventHook,
+
+  -- * Steam flickering fix
+  fixSteamFlicker,
   ) where
 
 
 import XMonad
-import Data.Monoid (All(All))
-import Control.Monad (when, filterM)
+import XMonad.Hooks.FloatConfigureReq (fixSteamFlicker)
+import XMonad.Hooks.StatusBar (xmonadPropLog')
+import XMonad.Prelude (All (All), fi, filterM, when)
 import System.Posix.Env (putEnv)
 
 
@@ -66,7 +77,7 @@ import System.Posix.Env (putEnv)
 -- Usage:
 -- add to handleEventHook as follows:
 --
--- > handleEventHook = handleEventHook def <+> Hacks.windowedFullscreenFixEventHook
+-- > handleEventHook = handleEventHook def <> Hacks.windowedFullscreenFixEventHook
 --
 
 -- | Fixes fullscreen behaviour of chromium based apps by quickly applying and undoing a resize.
@@ -126,7 +137,7 @@ javaHack conf = conf
 --
 -- > handleEventHook = … <> Hacks.trayerAboveXmobarEventHook
 
--- | 'trayAbovePanelEventHook' for trayer/xmobar
+-- | Like 'trayAbovePanelEventHook', but specialised for trayer/xmobar.
 trayerAboveXmobarEventHook :: Event -> X All
 trayerAboveXmobarEventHook = trayAbovePanelEventHook (className =? "trayer") (appName =? "xmobar")
 
@@ -145,3 +156,61 @@ trayAbovePanelEventHook trayQ panelQ ConfigureEvent{ev_window = w, ev_above = a}
     mapM_ (io . lowerWindow dpy) panelWs
   mempty
 trayAbovePanelEventHook _ _ _ = mempty
+
+-- $padTrayer
+-- Communicating tray (e.g., trayer) resize events to xmobar so that
+-- padding space may be reserved on xmobar for the tray.
+--
+-- Basic Usage with trayer:
+--
+-- First, add the padding hook to your @handleEventHook@ as follows:
+--
+-- > main = xmonad $ def
+-- > { ...
+-- > , handleEventHook = handleEventHook def
+-- >                  <> Hacks.trayerPaddingXmobarEventHook
+-- > }
+--
+-- Then, assuming the tray is placed on the right, update your
+-- @xmobarrc@ as follows:
+--
+-- > Config { ...
+-- >        , commands = [ ...
+-- >                     , Run XPropertyLog "_XMONAD_TRAYPAD", ... ]
+-- >        , template = " ... %_XMONAD_TRAYPAD%"
+-- >        }
+--
+-- As an example of what happens in this basic usage, consider the
+-- case where trayer updates to a width of 53 pixels.
+-- The following property will appear on the root window:
+--
+-- > _XMONAD_TRAYPAD(UTF8_STRING) = "<hspace=53/>"
+
+-- | A simple trayer/xmobar-specific event hook that watches for trayer window
+-- resize changes and updates the _XMONAD_TRAYPAD property with xmobar markup
+-- that leaves a gap for the trayer.
+trayerPaddingXmobarEventHook :: Event -> X All -- ^ event hook
+trayerPaddingXmobarEventHook = trayPaddingXmobarEventHook (className =? "trayer") "_XMONAD_TRAYPAD"
+
+-- | A generic version of 'trayerPaddingXmobarEventHook' that
+-- allows the user to specify how to identify a tray window and the property
+-- to use with 'xmonadPropLog''. This is useful for other trays like
+-- stalonetray and also when space for more than one tray-like window needs to
+-- be reserved.
+trayPaddingXmobarEventHook
+  :: Query Bool     -- ^ query to identify the tray window
+  -> String         -- ^ 'xmonadPropLog'' property to use
+  -> Event -> X All -- ^ resulting event hook
+trayPaddingXmobarEventHook trayQ prop = trayPaddingEventHook trayQ hspaceLog
+  where hspaceLog width = xmonadPropLog' prop ("<hspace=" ++ show width ++ "/>")
+
+-- | A fully generic tray resize hook that invokes a callback whenever a
+-- tray-like window changes width.
+trayPaddingEventHook
+  :: Query Bool     -- ^ query to identify the tray window
+  -> (Int -> X ())  -- ^ action to perform when tray width changes
+  -> Event -> X All -- ^ resulting event hook
+trayPaddingEventHook trayQ widthChanged ConfigureEvent{ ev_window = w, ev_width = wa } = do
+  whenX (runQuery trayQ w) $ widthChanged (fi wa)
+  mempty
+trayPaddingEventHook _ _ _ = mempty

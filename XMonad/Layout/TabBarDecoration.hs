@@ -2,6 +2,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.TabBarDecoration
+-- Description :  A layout modifier to add a bar of tabs to your layouts.
 -- Copyright   :  (c) 2007 Andrea Rossato
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -21,7 +22,7 @@ module XMonad.Layout.TabBarDecoration
     , module XMonad.Layout.ResizeScreen
     ) where
 
-import Data.List
+import XMonad.Prelude
 import XMonad
 import qualified XMonad.StackSet as S
 import XMonad.Layout.Decoration
@@ -30,7 +31,7 @@ import XMonad.Prompt ( XPPosition (..) )
 
 -- $usage
 -- You can use this module with the following in your
--- @~\/.xmonad\/xmonad.hs@:
+-- @xmonad.hs@:
 --
 -- > import XMonad.Layout.TabBarDecoration
 --
@@ -38,15 +39,15 @@ import XMonad.Prompt ( XPPosition (..) )
 --
 -- > main = xmonad def { layoutHook = simpleTabBar $ layoutHook def}
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 --
 -- 'tabBar' will give you the possibility of setting a custom shrinker
 -- and a custom theme.
 --
--- The deafult theme can be dynamically change with the xmonad theme
--- selector. See "XMonad.Prompt.Theme". For more themse, look at
+-- The default theme can be dynamically changed with the xmonad theme
+-- selector. See "XMonad.Prompt.Theme". For more themes, look at
 -- "XMonad.Util.Themes"
 
 -- | Add, on the top of the screen, a simple bar of tabs to a given
@@ -61,7 +62,7 @@ simpleTabBar = decoration shrinkText def (TabBar Top) . resizeVertical 20
 tabBar :: (Eq a, Shrinker s) => s -> Theme -> XPPosition -> l a -> ModifiedLayout (Decoration TabBarDecoration s) l a
 tabBar s t p = decoration s t (TabBar p)
 
-data TabBarDecoration a = TabBar XPPosition deriving (Read, Show)
+newtype TabBarDecoration a = TabBar XPPosition deriving (Read, Show)
 
 instance Eq a => DecorationStyle TabBarDecoration a where
     describeDeco  _ = "TabBar"
@@ -75,4 +76,5 @@ instance Eq a => DecorationStyle TabBarDecoration a where
               ny  = case p of
                      Top    -> y
                      Bottom -> y + fi ht - fi dht
+                     _      -> error "Position must be 'Top' or 'Bottom'"
               nx  = (x +) $ maybe 0 (fi . loc) $ w `elemIndex` wrs

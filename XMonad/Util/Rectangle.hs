@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.Rectangle
+-- Description :  A module for handling pixel rectangles.
 -- Copyright   :  (c) 2018 Yclept Nemo
 -- License     :  BSD-style (see LICENSE)
 --
@@ -29,6 +30,7 @@ module XMonad.Util.Rectangle
     ) where
 
 import           XMonad
+import           XMonad.Prelude (fi)
 import qualified XMonad.StackSet as W
 
 import           Data.Ratio
@@ -65,11 +67,11 @@ data PointRectangle a = PointRectangle
 -- @[N,N+1]@, as though each real-valued coordinate had been rounded (either
 -- down or up) to the nearest integers. So each pixel, from zero, is listed as:
 -- @[0,0]@, @[1,1]@, @[2,2]@, and so on. Rather than a coordinate system, this
--- considers pixels as row/colum indices.  While easiest to reason with,
+-- considers pixels as row/column indices.  While easiest to reason with,
 -- indices are unable to represent zero-dimension rectangles.
 --
 -- Consider pixels as indices. Do not use this on empty rectangles.
-pixelsToIndices :: Rectangle -> (PointRectangle Integer)
+pixelsToIndices :: Rectangle -> PointRectangle Integer
 pixelsToIndices (Rectangle px py dx dy) =
     PointRectangle (fromIntegral px)
                    (fromIntegral py)
@@ -77,7 +79,7 @@ pixelsToIndices (Rectangle px py dx dy) =
                    (fromIntegral py + fromIntegral dy - 1)
 
 -- | Consider pixels as @[N,N+1)@ coordinates. Available for empty rectangles.
-pixelsToCoordinates :: Rectangle -> (PointRectangle Integer)
+pixelsToCoordinates :: Rectangle -> PointRectangle Integer
 pixelsToCoordinates (Rectangle px py dx dy) =
     PointRectangle (fromIntegral px)
                    (fromIntegral py)
@@ -85,7 +87,7 @@ pixelsToCoordinates (Rectangle px py dx dy) =
                    (fromIntegral py + fromIntegral dy)
 
 -- | Invert 'pixelsToIndices'.
-indicesToRectangle :: (PointRectangle Integer) -> Rectangle
+indicesToRectangle :: PointRectangle Integer -> Rectangle
 indicesToRectangle (PointRectangle x1 y1 x2 y2) =
     Rectangle (fromIntegral x1)
               (fromIntegral y1)
@@ -93,7 +95,7 @@ indicesToRectangle (PointRectangle x1 y1 x2 y2) =
               (fromIntegral $ y2 - y1 + 1)
 
 -- | Invert 'pixelsToCoordinates'.
-coordinatesToRectangle :: (PointRectangle Integer) -> Rectangle
+coordinatesToRectangle :: PointRectangle Integer -> Rectangle
 coordinatesToRectangle (PointRectangle x1 y1 x2 y2) =
     Rectangle (fromIntegral x1)
               (fromIntegral y1)
@@ -105,7 +107,7 @@ coordinatesToRectangle (PointRectangle x1 y1 x2 y2) =
 empty :: Rectangle -> Bool
 empty (Rectangle _ _ _ 0) = True
 empty (Rectangle _ _ 0 _) = True
-empty (Rectangle _ _ _ _) = False
+empty Rectangle{}         = False
 
 -- | True if the intersection of the set of points comprising each rectangle is
 -- not the empty set. Therefore any rectangle containing the initial points of
@@ -141,21 +143,13 @@ difference r1 r2 | r1 `intersects` r2 = map coordinatesToRectangle $
     where PointRectangle r1_x1 r1_y1 r1_x2 r1_y2 = pixelsToCoordinates r1
           PointRectangle r2_x1 r2_y1 r2_x2 r2_y2 = pixelsToCoordinates r2
           -- top - assuming (0,0) is top-left
-          rt = if r2_y1 > r1_y1 && r2_y1 < r1_y2
-               then [PointRectangle (max r2_x1 r1_x1) r1_y1 r1_x2 r2_y1]
-               else []
+          rt = [PointRectangle (max r2_x1 r1_x1) r1_y1 r1_x2 r2_y1 | r2_y1 > r1_y1 && r2_y1 < r1_y2]
           -- right
-          rr = if r2_x2 > r1_x1 && r2_x2 < r1_x2
-               then [PointRectangle r2_x2 (max r2_y1 r1_y1) r1_x2 r1_y2]
-               else []
+          rr = [PointRectangle r2_x2 (max r2_y1 r1_y1) r1_x2 r1_y2 | r2_x2 > r1_x1 && r2_x2 < r1_x2]
           -- bottom
-          rb = if r2_y2 > r1_y1 && r2_y2 < r1_y2
-               then [PointRectangle r1_x1 r2_y2 (min r2_x2 r1_x2) r1_y2]
-               else []
+          rb = [PointRectangle r1_x1 r2_y2 (min r2_x2 r1_x2) r1_y2 | r2_y2 > r1_y1 && r2_y2 < r1_y2]
           -- left
-          rl = if r2_x1 > r1_x1 && r2_x1 < r1_x2
-               then [PointRectangle r1_x1 r1_y1 r2_x1 (min r2_y2 r1_y2)]
-               else []
+          rl = [PointRectangle r1_x1 r1_y1 r2_x1 (min r2_y2 r1_y2) | r2_x1 > r1_x1 && r2_x1 < r1_x2]
 
 -- | Fit a 'Rectangle' within the given borders of itself. Given insufficient
 -- space, borders are minimized while preserving the ratio of opposite borders.
@@ -198,8 +192,8 @@ withBorder t b r l i (Rectangle x y w h) =
 -- | Calculate the center - @(x,y)@ - as if the 'Rectangle' were bounded.
 center :: Rectangle -> (Ratio Integer,Ratio Integer)
 center (Rectangle x y w h) = (cx,cy)
-    where cx = fromIntegral x + (fromIntegral w) % 2
-          cy = fromIntegral y + (fromIntegral h) % 2
+    where cx = fromIntegral x + fromIntegral w % 2
+          cy = fromIntegral y + fromIntegral h % 2
 
 -- | Invert 'scaleRationalRect'. Since that operation is lossy a roundtrip
 -- conversion may not result in the original value. The first 'Rectangle' is
@@ -209,6 +203,6 @@ center (Rectangle x y w h) = (cx,cy)
 -- RationalRect (1 % 5) (1 % 5) (3 % 5) (3 % 5)
 toRatio :: Rectangle -> Rectangle -> W.RationalRect
 toRatio (Rectangle x1 y1 w1 h1) (Rectangle x2 y2 w2 h2) =
-    let [x1n,y1n,x2n,y2n] = map fromIntegral [x1,y1,x2,y2]
-        [w1n,h1n,w2n,h2n] = map fromIntegral [w1,h1,w2,h2]
-    in  W.RationalRect ((x1n-x2n)/w2n) ((y1n-y2n)/h2n) (w1n/w2n) (h1n/h2n)
+    W.RationalRect ((fi x1 - fi x2) / fi w2)
+                   ((fi y1 - fi y2) / fi h2)
+                   (fi w1 / fi w2) (fi h1 / fi h2)

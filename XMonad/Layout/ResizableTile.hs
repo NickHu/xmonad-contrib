@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, TupleSections #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.ResizableTile
+-- Description :  More useful tiled layout that allows you to change a width\/height of window.
 -- Copyright   :  (c) MATSUYAMA Tomohiro <t.matsuyama.pub@gmail.com>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -21,13 +22,12 @@ module XMonad.Layout.ResizableTile (
                                    ) where
 
 import XMonad hiding (tile, splitVertically, splitHorizontallyBy)
+import XMonad.Prelude
 import qualified XMonad.StackSet as W
-import Control.Monad
 import qualified Data.Map as M
-import Data.List ((\\))
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.ResizableTile
 --
@@ -36,9 +36,9 @@ import Data.List ((\\))
 -- > myLayout =  ResizableTall 1 (3/100) (1/2) [] ||| etc..
 -- > main = xmonad def { layoutHook = myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 --
 -- You may also want to add the following key bindings:
 --
@@ -47,9 +47,9 @@ import Data.List ((\\))
 --
 -- For detailed instruction on editing the key binding see:
 --
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
-data MirrorResize = MirrorShrink | MirrorExpand deriving Typeable
+data MirrorResize = MirrorShrink | MirrorExpand
 instance Message MirrorResize
 
 data ResizableTall a = ResizableTall
@@ -68,25 +68,25 @@ data ResizableTall a = ResizableTall
 
 instance LayoutClass ResizableTall a where
     doLayout (ResizableTall nmaster _ frac mfrac) r =
-        return . (\x->(x,Nothing)) .
+        return . (, Nothing) .
         ap zip (tile frac (mfrac ++ repeat 1) r nmaster . length) . W.integrate
     handleMessage (ResizableTall nmaster delta frac mfrac) m =
-        do ms <- (W.stack . W.workspace . W.current) <$> gets windowset
-           fs <- (M.keys . W.floating) <$> gets windowset
+        do ms <- W.stack . W.workspace . W.current <$> gets windowset
+           fs <- M.keys . W.floating <$> gets windowset
            return $ ms >>= unfloat fs >>= handleMesg
         where handleMesg s = msum [fmap resize (fromMessage m)
-                                  ,fmap (\x -> mresize x s) (fromMessage m)
+                                  ,fmap (`mresize` s) (fromMessage m)
                                   ,fmap incmastern (fromMessage m)]
               unfloat fs s = if W.focus s `elem` fs
                                then Nothing
-                               else Just (s { W.up = (W.up s) \\ fs
-                                            , W.down = (W.down s) \\ fs })
+                               else Just (s { W.up = W.up s \\ fs
+                                            , W.down = W.down s \\ fs })
               resize Shrink = ResizableTall nmaster delta (max 0 $ frac-delta) mfrac
               resize Expand = ResizableTall nmaster delta (min 1 $ frac+delta) mfrac
               mresize MirrorShrink s = mresize' s delta
-              mresize MirrorExpand s = mresize' s (0-delta)
+              mresize MirrorExpand s = mresize' s (negate delta)
               mresize' s d = let n = length $ W.up s
-                                 total = n + (length $ W.down s) + 1
+                                 total = n + length (W.down s) + 1
                                  pos = if n == (nmaster-1) || n == (total-1) then n-1 else n
                                  mfrac' = modifymfrac (mfrac ++ repeat 1) d pos
                              in ResizableTall nmaster delta frac $ take total mfrac'

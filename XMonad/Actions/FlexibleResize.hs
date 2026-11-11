@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.FlexibleResize
+-- Description :  Resize floating windows from any corner.
 -- Copyright   :  (c) Lukas Mai
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -20,11 +21,11 @@ module XMonad.Actions.FlexibleResize (
 ) where
 
 import XMonad
-import XMonad.Util.XUtils (fi)
+import XMonad.Prelude (fi)
 import Foreign.C.Types
 
 -- $usage
--- To use, first import this module into your @~\/.xmonad\/xmonad.hs@ file:
+-- To use, first import this module into your @xmonad.hs@ file:
 --
 -- > import qualified XMonad.Actions.FlexibleResize as Flex
 --
@@ -49,12 +50,15 @@ mouseResizeEdgeWindow
   :: Rational -- ^ The size of the area where only one edge is resized.
   -> Window   -- ^ The window to resize.
   -> X ()
-mouseResizeEdgeWindow edge w = whenX (isClient w) $ withDisplay $ \d -> do
-    wa <- io $ getWindowAttributes d w
+mouseResizeEdgeWindow edge w = whenX (isClient w) $ withDisplay $ \d ->
+  withWindowAttributes d w $ \wa -> do
     sh <- io $ getWMNormalHints d w
     (_, _, _, _, _, ix, iy, _) <- io $ queryPointer d w
     let
-        [pos_x, pos_y, width, height] = map (fi . ($ wa)) [wa_x, wa_y, wa_width, wa_height]
+        pos_x  = fi $ wa_x wa
+        pos_y  = fi $ wa_y wa
+        width  = fi $ wa_width wa
+        height = fi $ wa_height wa
         west  = findPos ix width
         north = findPos iy height
         (cx, fx, gx) = mkSel west  width  pos_x
@@ -66,12 +70,12 @@ mouseResizeEdgeWindow edge w = whenX (isClient w) $ withDisplay $ \d -> do
               (float w)
     where
     findPos :: CInt -> Position -> Maybe Bool
-    findPos m s = if p < 0.5 - edge/2
-                  then Just True
-                  else if p < 0.5 + edge/2
-                       then Nothing
-                       else Just False
-                  where p = fi m / fi s
+    findPos m s
+      | p < 0.5 - edge/2 = Just True
+      | p < 0.5 + edge/2 = Nothing
+      | otherwise = Just False
+      where
+          p = fi m / fi s
     mkSel :: Maybe Bool -> Position -> Position -> (Position, Dimension -> Position, Position -> Dimension)
     mkSel b k p = case b of
                       Just True ->  (0, (fi k + fi p -).fi, (fi k + fi p -).fi)

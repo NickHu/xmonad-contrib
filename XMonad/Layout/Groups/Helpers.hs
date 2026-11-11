@@ -1,9 +1,10 @@
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
-{-# LANGUAGE MultiParamTypeClasses, Rank2Types #-}
+{-# LANGUAGE MultiParamTypeClasses, Rank2Types, ViewPatterns #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Groups.Helpers
+-- Description :  Utility functions for "XMonad.Layout.Groups".
 -- Copyright   :  Quentin Moser <moserq@gmail.com>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -47,7 +48,7 @@ import qualified XMonad.Layout.Groups as G
 
 import XMonad.Actions.MessageFeedback (sendMessageB)
 
-import Control.Monad (unless)
+import XMonad.Prelude (unless)
 import qualified Data.Map as M
 
 -- $usage
@@ -57,7 +58,7 @@ import qualified Data.Map as M
 --
 -- > import XMonad.Layout.Groups.Helpers
 --
--- to the top of your @.\/.xmonad\/xmonad.hs@.
+-- to the top of your @xmonad.hs@.
 --
 -- "XMonad.Layout.Groups"-based layouts do not have the same notion
 -- of window ordering as the rest of XMonad. For this reason, the usual
@@ -82,8 +83,8 @@ import qualified Data.Map as M
 --
 -- > import qualified XMonad.Layout.Groups as G
 --
--- For more information on how to extend your layour hook and key bindings, see
--- "XMonad.Doc.Extending".
+-- For more information on how to extend your layoutHook and key bindings, see
+-- <https://xmonad.org/TUTORIAL.html the tutorial> and "XMonad.Doc.Extending".
 
 -- ** Layout-generic actions
 -- #Layout-generic actions#
@@ -135,7 +136,7 @@ getWindows = gets $ W.integrate' . W.stack . W.workspace . W.current . windowset
 
 ifFloat :: X () -> X () -> X ()
 ifFloat x1 x2 = withFocused $ \w -> do floats <- getFloats
-                                       if elem w floats then x1 else x2
+                                       if w `elem` floats then x1 else x2
 
 focusNonFloat :: X ()
 focusNonFloat = alt2 G.Refocus helper
@@ -143,7 +144,7 @@ focusNonFloat = alt2 G.Refocus helper
                      ws <- getWindows
                      floats <- getFloats
                      let (before,  after) = span (/=w) ws
-                     case filter (flip notElem floats) $ after ++ before of
+                     case filter (`notElem` floats) $ after ++ before of
                        [] -> return ()
                        w':_ -> focus w'
 
@@ -154,7 +155,7 @@ focusHelper :: (Bool -> Bool) -- ^ if you want to focus a floating window, 'id'.
             -> X ()
 focusHelper f g = withFocused $ \w -> do
                  ws <- getWindows
-                 let (before, _:after) = span (/=w) ws
+                 let (before, drop 1 -> after) = span (/=w) ws
                  let toFocus = g $ after ++ before
                  floats <- getFloats
                  case filter (f . flip elem floats) toFocus of

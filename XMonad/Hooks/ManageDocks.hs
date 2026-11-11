@@ -1,8 +1,8 @@
-{-# LANGUAGE DeriveDataTypeable, PatternGuards, FlexibleInstances, MultiParamTypeClasses, CPP #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PatternGuards, FlexibleInstances, MultiParamTypeClasses, CPP, LambdaCase #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Hooks.ManageDocks
+-- Description :  Automatically manage 'dock' type programs.
 -- Copyright    : (c) Joachim Breitner <mail@joachim-breitner.de>
 -- License      : BSD
 --
@@ -16,8 +16,7 @@
 module XMonad.Hooks.ManageDocks (
     -- * Usage
     -- $usage
-    docks, manageDocks, checkDock, AvoidStruts(..), avoidStruts, avoidStrutsOn,
-    docksEventHook, docksStartupHook,
+    docks, manageDocks, checkDock, AvoidStruts(..), avoidStruts, avoidStrutsOn, onAllDocks,
     ToggleStruts(..),
     SetStruts(..),
     module XMonad.Util.Types,
@@ -28,8 +27,11 @@ module XMonad.Hooks.ManageDocks (
     RectC(..),
 #endif
 
-    -- for XMonad.Actions.FloatSnap
-    calcGap
+    -- * For developers of other modules ("XMonad.Actions.FloatSnap")
+    calcGap,
+
+    -- * Standalone hooks (deprecated)
+    docksEventHook, docksStartupHook,
     ) where
 
 
@@ -39,23 +41,21 @@ import Foreign.C.Types (CLong)
 import XMonad.Layout.LayoutModifier
 import XMonad.Util.Types
 import XMonad.Util.WindowProperties (getProp32s)
-import XMonad.Util.XUtils (fi)
 import qualified XMonad.Util.ExtensibleState as XS
-import Data.Monoid (All(..))
+import XMonad.Prelude
 
-import qualified Data.Set as S
-import qualified Data.Map as M
-import Control.Monad (when, filterM, void, (<=<))
-import Data.Foldable (foldlM)
+import qualified Data.Set        as S
+import qualified Data.Map        as M
+import qualified XMonad.StackSet as W
 
 -- $usage
--- To use this module, add the following import to @~\/.xmonad\/xmonad.hs@:
+-- To use this module, add the following import to @xmonad.hs@:
 --
 -- > import XMonad.Hooks.ManageDocks
 --
 -- Wrap your xmonad config with a call to 'docks', like so:
 --
--- > main = xmonad $ docks def
+-- > main = xmonad $ … . docks . … $ def{…}
 --
 -- Then add 'avoidStruts' or 'avoidStrutsOn' layout modifier to your layout
 -- to prevent windows from overlapping these windows.
@@ -83,18 +83,18 @@ import Data.Foldable (foldlM)
 -- > layoutHook = avoidStrutsOn [U,L] (tall ||| mirror tall ||| ...)
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 --
 
 -- | Add docks functionality to the given config.  See above for an example.
 docks :: XConfig a -> XConfig a
-docks c = c { startupHook     = docksStartupHook <+> startupHook c
-            , handleEventHook = docksEventHook <+> handleEventHook c
-            , manageHook      = manageDocks <+> manageHook c }
+docks c = c { startupHook     = docksStartupHook <> startupHook c
+            , handleEventHook = docksEventHook <> handleEventHook c
+            , manageHook      = manageDocks <> manageHook c }
 
 type WindowStruts = M.Map Window [Strut]
 
-data UpdateDocks = UpdateDocks deriving Typeable
+data UpdateDocks = UpdateDocks
 instance Message UpdateDocks
 
 refreshDocks :: X ()
@@ -102,7 +102,7 @@ refreshDocks = sendMessage UpdateDocks
 
 -- Nothing means cache hasn't been initialized yet
 newtype StrutCache = StrutCache { fromStrutCache :: Maybe WindowStruts }
-    deriving (Eq, Typeable)
+    deriving Eq
 
 instance ExtensionClass StrutCache where
     initialValue = StrutCache Nothing
@@ -134,10 +134,14 @@ updateStrut w cache = do
     strut <- getStrut w
     pure $ M.insert w strut cache
 
+-- | Perform the given action on all docks.
+onAllDocks :: (Window -> X ()) -> X ()
+onAllDocks act = traverse_ (act . fst) . M.toList =<< getStrutCache
+
 -- | Detects if the given window is of type DOCK and if so, reveals
 --   it, but does not manage it.
 manageDocks :: ManageHook
-manageDocks = checkDock --> (doIgnore <+> doRequestDockEvents)
+manageDocks = checkDock --> (doIgnore <> doRequestDockEvents)
   where
     doRequestDockEvents = ask >>= liftX . requestDockEvents >> mempty
 
@@ -145,39 +149,47 @@ manageDocks = checkDock --> (doIgnore <+> doRequestDockEvents)
 -- (Only if not already a client to avoid overriding 'clientMask')
 requestDockEvents :: Window -> X ()
 requestDockEvents w = whenX (not <$> isClient w) $ withDisplay $ \dpy ->
-    io $ selectInput dpy w (propertyChangeMask .|. structureNotifyMask)
+    withWindowAttributes dpy w $ \attrs -> io $ selectInput dpy w $
+        wa_your_event_mask attrs .|. propertyChangeMask .|. structureNotifyMask
 
--- | Checks if a window is a DOCK or DESKTOP window
+-- | Checks if a window is a DOCK or DESKTOP window.
+-- Ignores xmonad's own windows (usually _NET_WM_WINDOW_TYPE_DESKTOP) to avoid
+-- unnecessary refreshes.
 checkDock :: Query Bool
-checkDock = ask >>= \w -> liftX $ do
-    dock <- getAtom "_NET_WM_WINDOW_TYPE_DOCK"
-    desk <- getAtom "_NET_WM_WINDOW_TYPE_DESKTOP"
-    mbr <- getProp32s "_NET_WM_WINDOW_TYPE" w
-    case mbr of
-        Just rs -> return $ any (`elem` [dock,desk]) (map fromIntegral rs)
-        _       -> return False
+checkDock = isDockOrDesktop <&&> (not <$> isXMonad)
+  where
+    isDockOrDesktop = ask >>= \w -> liftX $ do
+        dock <- getAtom "_NET_WM_WINDOW_TYPE_DOCK"
+        desk <- getAtom "_NET_WM_WINDOW_TYPE_DESKTOP"
+        mbr <- getProp32s "_NET_WM_WINDOW_TYPE" w
+        case mbr of
+            Just rs -> return $ any ((`elem` [dock,desk]) . fromIntegral) rs
+            _       -> return False
+    isXMonad = className =? "xmonad"
 
 -- | Whenever a new dock appears, refresh the layout immediately to avoid the
 -- new dock.
+{-# DEPRECATED docksEventHook "Use docks instead." #-}
 docksEventHook :: Event -> X All
-docksEventHook (MapNotifyEvent { ev_window = w }) = do
+docksEventHook MapNotifyEvent{ ev_window = w } = do
     whenX (runQuery checkDock w <&&> (not <$> isClient w)) $
         whenX (updateStrutCache w) refreshDocks
     return (All True)
-docksEventHook (PropertyEvent { ev_window = w
-                              , ev_atom = a }) = do
+docksEventHook PropertyEvent{ ev_window = w
+                            , ev_atom = a } = do
     nws <- getAtom "_NET_WM_STRUT"
     nwsp <- getAtom "_NET_WM_STRUT_PARTIAL"
     when (a == nws || a == nwsp) $
         whenX (updateStrutCache w) refreshDocks
     return (All True)
-docksEventHook (DestroyWindowEvent {ev_window = w}) = do
+docksEventHook DestroyWindowEvent{ ev_window = w } = do
     whenX (deleteFromStrutCache w) refreshDocks
     return (All True)
 docksEventHook _ = return (All True)
 
+{-# DEPRECATED docksStartupHook "Use docks instead." #-}
 docksStartupHook :: X ()
-docksStartupHook = void $ getStrutCache
+docksStartupHook = void getStrutCache
 
 -- | Gets the STRUT config, if present, in xmonad gap order
 getStrut :: Window -> X [Strut]
@@ -198,39 +210,46 @@ getStrut w = do
 -- | Goes through the list of windows and find the gap so that all
 --   STRUT settings are satisfied.
 calcGap :: S.Set Direction2D -> X (Rectangle -> Rectangle)
-calcGap ss = withDisplay $ \dpy -> do
+calcGap ss = do
     rootw <- asks theRoot
     struts <- filter careAbout . concat . M.elems <$> getStrutCache
 
-    -- we grab the window attributes of the root window rather than checking
-    -- the width of the screen because xlib caches this info and it tends to
-    -- be incorrect after RAndR
-    wa <- io $ getWindowAttributes dpy rootw
-    let screen = r2c $ Rectangle (fi $ wa_x wa) (fi $ wa_y wa) (fi $ wa_width wa) (fi $ wa_height wa)
+    -- If possible, we grab the window attributes of the root window rather
+    -- than checking the width of the screen because xlib caches this info
+    -- and it tends to be incorrect after RAndR
+    screen <- safeGetWindowAttributes rootw >>= \case
+        Nothing -> gets $ r2c . screenRect . W.screenDetail . W.current . windowset
+        Just wa -> pure . r2c $ Rectangle (fi $ wa_x wa) (fi $ wa_y wa) (fi $ wa_width wa) (fi $ wa_height wa)
     return $ \r -> c2r $ foldr (reduce screen) (r2c r) struts
   where careAbout (s,_,_,_) = s `S.member` ss
 
 -- | Adjust layout automagically: don't cover up any docks, status
 --   bars, etc.
+--
+--   Note that this modifier must be applied before any modifier that
+--   changes the screen rectangle, or struts will be applied in the wrong
+--   place and may affect the other modifier(s) in odd ways. This is
+--   most commonly seen with the 'spacing' modifier and friends.
 avoidStruts :: LayoutClass l a => l a -> ModifiedLayout AvoidStruts l a
 avoidStruts = avoidStrutsOn [U,D,L,R]
 
 -- | Adjust layout automagically: don't cover up docks, status bars,
---   etc. on the indicated sides of the screen.  Valid sides are U
---   (top), D (bottom), R (right), or L (left).
+--   etc. on the indicated sides of the screen.  Valid sides are 'U'
+--   (top), 'D' (bottom), 'R' (right), or 'L' (left). The warning in
+--   'avoidStruts' applies to this modifier as well.
 avoidStrutsOn :: LayoutClass l a =>
                  [Direction2D]
               -> l a
               -> ModifiedLayout AvoidStruts l a
 avoidStrutsOn ss = ModifiedLayout $ AvoidStruts (S.fromList ss)
 
-data AvoidStruts a = AvoidStruts (S.Set Direction2D) deriving ( Read, Show )
+newtype AvoidStruts a = AvoidStruts (S.Set Direction2D) deriving ( Read, Show )
 
 -- | Message type which can be sent to an 'AvoidStruts' layout
 --   modifier to alter its behavior.
 data ToggleStruts = ToggleStruts
                   | ToggleStrut Direction2D
-  deriving (Read,Show,Typeable)
+  deriving (Read,Show)
 
 instance Message ToggleStruts
 
@@ -256,7 +275,7 @@ instance Message ToggleStruts
 data SetStruts = SetStruts { addedStruts   :: [Direction2D]
                            , removedStruts :: [Direction2D] -- ^ These are removed from the currently set struts before 'addedStruts' are added.
                            }
-  deriving (Read,Show,Typeable)
+  deriving (Read,Show)
 
 instance Message SetStruts
 
@@ -328,9 +347,5 @@ reduce (RectC (sx0, sy0, sx1, sy1)) (s, n, l, h) (RectC (x0, y0, x1, y1)) =
 -- Precondition for every input range @(x, y)@: @x '<=' y@.
 --
 -- A range @(x, y)@ is assumed to include every pixel from @x@ to @y@.
-
 overlaps :: Ord a => (a, a) -> (a, a) -> Bool
-(a, b) `overlaps` (x, y) =
-  inRange (a, b) x || inRange (a, b) y || inRange (x, y) a
-  where
-  inRange (i, j) k = i <= k && k <= j
+(a, b) `overlaps` (x, y) = not (b < x || y < a) -- not disjoint

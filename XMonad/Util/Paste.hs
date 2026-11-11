@@ -1,5 +1,6 @@
 {- |
 Module      :  XMonad.Util.Paste
+Description :  A module for sending key presses to windows.
 Copyright   :  (C) 2008 Jérémy Bobbio, gwern
 License     :  BSD3
 
@@ -27,15 +28,14 @@ import Graphics.X11
 import Graphics.X11.Xlib.Extras (none, setEventType, setKeyEvent)
 import Control.Monad.Reader (asks)
 import XMonad.Operations (withFocused)
-import Data.Char (isUpper)
-import Data.Maybe (listToMaybe)
+import XMonad.Prelude (isUpper, fromMaybe)
 import XMonad.Util.XSelection (getSelection)
 import XMonad.Util.EZConfig (parseKey)
-import Text.ParserCombinators.ReadP (readP_to_S)
+import XMonad.Util.Parser (runParser)
 
 {- $usage
 
-Import this module into your xmonad.hs as usual:
+Import this module into your @xmonad.hs@ as usual:
 
 > import XMonad.Util.Paste
 
@@ -72,8 +72,8 @@ pasteString = mapM_ (\x -> if isUpper x || x `elem` "~!@#$%^&*()_+{}|:\"<>?" the
    outside ASCII.
 -}
 pasteChar :: KeyMask -> Char -> X ()
-pasteChar m c = sendKey m $ maybe (unicodeToKeysym c) fst
-                $ listToMaybe $ readP_to_S parseKey [c]
+pasteChar m c = sendKey m $ fromMaybe (unicodeToKeysym c)
+                $ runParser parseKey [c]
 
 -- | Send a key with a modifier to the currently focused window.
 sendKey :: KeyMask -> KeySym -> X ()
@@ -98,6 +98,6 @@ unicodeToKeysym :: Char -> KeySym
 unicodeToKeysym c
   | (ucp >= 32)  && (ucp <= 126) = fromIntegral ucp
   | (ucp >= 160) && (ucp <= 255) = fromIntegral ucp
-  | (ucp >= 256)                 = fromIntegral $ ucp + 0x1000000
+  | ucp >= 256                   = fromIntegral $ ucp + 0x1000000
   | otherwise                    = 0 -- this is supposed to be an error, but it's not ideal
   where ucp = fromEnum c -- codepoint

@@ -1,8 +1,9 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE ExistentialQuantification, FlexibleContexts, FlexibleInstances, StandaloneDeriving #-}
+{-# LANGUAGE ExistentialQuantification, FlexibleContexts, FlexibleInstances, StandaloneDeriving, TupleSections #-}
 --------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.NamedActions
+-- Description :  A wrapper for keybinding configuration that can list the available keybindings.
 -- Copyright   :  2009 Adam Vogt <vogt.adam@gmail.com>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -46,12 +47,10 @@ module XMonad.Util.NamedActions (
 
 
 import XMonad.Actions.Submap(submap)
+import XMonad.Prelude (groupBy, keyToString)
 import XMonad
-import System.Posix.Process(executeFile)
-import Control.Arrow(Arrow((&&&), second, (***)))
-import Data.Bits(Bits((.&.), complement))
-import Data.List (groupBy)
-import System.Exit(ExitCode(ExitSuccess), exitWith)
+import Control.Arrow(Arrow((&&&), second))
+import System.Exit(exitSuccess)
 
 import qualified Data.Map as M
 import qualified XMonad.StackSet as W
@@ -112,7 +111,7 @@ deriving instance Show XMonad.IncMasterN
 -- | 'sendMessage' but add a description that is @show message@. Note that not
 -- all messages have show instances.
 sendMessage' :: (Message a, Show a) => a -> NamedAction
-sendMessage' x = NamedAction $ (XMonad.sendMessage x,show x)
+sendMessage' x = NamedAction (XMonad.sendMessage x,show x)
 
 -- | 'spawn' but the description is the string passed
 spawn' :: String -> NamedAction
@@ -166,22 +165,6 @@ submapName = NamedAction . (submap . M.map getAction . M.fromList &&& showKm)
      [(d, b)] -> [(d, b1)] -> [(d, NamedAction)]
 a ^++^ b = map (second NamedAction) a ++ map (second NamedAction) b
 
--- | Or allow another lookup table?
-modToString :: KeyMask -> String
-modToString mask = concatMap (++"-") $ filter (not . null)
-                $ map (uncurry pick)
-                [(mod1Mask, "M1")
-                ,(mod2Mask, "M2")
-                ,(mod3Mask, "M3")
-                ,(mod4Mask, "M4")
-                ,(mod5Mask, "M5")
-                ,(controlMask, "C")
-                ,(shiftMask,"Shift")]
-    where pick m str = if m .&. complement mask == 0 then str else ""
-
-keyToString :: (KeyMask, KeySym) -> [Char]
-keyToString = uncurry (++) . (modToString *** keysymToString)
-
 showKmSimple :: [((KeyMask, KeySym), NamedAction)] -> [[Char]]
 showKmSimple = concatMap (\(k,e) -> if snd k == 0 then "":showName e else map ((keyToString k ++) . smartSpace) $ showName e)
 
@@ -195,7 +178,7 @@ _test = unlines $ showKm $ defaultKeysDescr XMonad.def { XMonad.layoutHook = XMo
 showKm :: [((KeyMask, KeySym), NamedAction)] -> [String]
 showKm keybindings = padding $ do
     (k,e) <- keybindings
-    if snd k == 0 then map ((,) "") $ showName e
+    if snd k == 0 then map ("",) $ showName e
         else map ((,) (keyToString k) . smartSpace) $ showName e
     where padding = let pad n (k,e) = if null k then "\n>> "++e else take n (k++repeat ' ') ++ e
                         expand xs n = map (pad n) xs
@@ -204,9 +187,7 @@ showKm keybindings = padding $ do
 
 -- | An action to send to 'addDescrKeys' for showing the keybindings. See also 'showKm' and 'showKmSimple'
 xMessage :: [((KeyMask, KeySym), NamedAction)] -> NamedAction
-xMessage x = addName "Show Keybindings" $ io $ do
-    xfork $ executeFile "xmessage" True ["-default", "okay", unlines $ showKm x] Nothing
-    return ()
+xMessage x = addName "Show Keybindings" $ xmessage $ unlines $ showKm x
 
 -- | Merge the supplied keys with 'defaultKeysDescr', also adding a keybinding
 -- to run an action for showing the keybindings.
@@ -224,12 +205,12 @@ addDescrKeys' :: (HasName b) =>
 addDescrKeys' (k,f) ks conf =
     let shk l = f $ [(k,f $ ks l)] ^++^ ks l
         keylist l = M.map getAction $ M.fromList $ ks l ^++^ [(k, shk l)]
-    in conf { keys = keylist }
+     in conf { keys = keylist <> keys conf }
 
 -- | A version of the default keys from the default configuration, but with
 -- 'NamedAction'  instead of @X ()@
 defaultKeysDescr :: XConfig Layout -> [((KeyMask, KeySym), NamedAction)]
-defaultKeysDescr conf@(XConfig {XMonad.modMask = modm}) =
+defaultKeysDescr conf@XConfig{XMonad.modMask = modm} =
     [ subtitle "launching and killing programs"
     , ((modm .|. shiftMask, xK_Return), addName "Launch Terminal" $ spawn $ XMonad.terminal conf) -- %! Launch terminal
     , ((modm,               xK_p     ), addName "Launch dmenu" $ spawn "exe=`dmenu_path | dmenu` && eval \"exec $exe\"") -- %! Launch dmenu
@@ -267,7 +248,7 @@ defaultKeysDescr conf@(XConfig {XMonad.modMask = modm}) =
     , ((modm              , xK_period), sendMessage' (IncMasterN (-1))) -- %! Deincrement the number of windows in the master area
 
     , subtitle "quit, or restart"
-    , ((modm .|. shiftMask, xK_q     ), addName "Quit" $ io (exitWith ExitSuccess)) -- %! Quit xmonad
+    , ((modm .|. shiftMask, xK_q     ), addName "Quit" $ io exitSuccess) -- %! Quit xmonad
     , ((modm              , xK_q     ), addName "Restart" $ spawn "xmonad --recompile && xmonad --restart") -- %! Restart xmonad
     ]
 

@@ -1,7 +1,7 @@
-{-# LANGUAGE DeriveDataTypeable #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Hooks.ToggleHook
+-- Description :  Hook and keybindings for toggling hook behavior.
 -- Copyright   :  Ben Boeckel <mathstuf@gmail.com>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -30,7 +30,7 @@ module XMonad.Hooks.ToggleHook ( -- * Usage
                                , willHookNext
                                , willHookAllNew
 
-                                 -- * 'DynamicLog' utilities
+                                 -- * Status bar utilities
                                  -- $pp
                                , willHookNextPP
                                , willHookAllNewPP
@@ -39,9 +39,9 @@ module XMonad.Hooks.ToggleHook ( -- * Usage
 import Prelude hiding (all)
 
 import XMonad
+import XMonad.Prelude (guard, join)
 import qualified XMonad.Util.ExtensibleState as XS
 
-import Control.Monad (join,guard)
 import Control.Arrow (first, second)
 
 import Data.Map
@@ -62,7 +62,7 @@ _pp n f s st = (\b -> guard b >> Just (st s)) <$> _get n f
 
 {- The current state is kept here -}
 
-data HookState = HookState { hooks :: Map String (Bool, Bool) } deriving (Typeable, Read, Show)
+newtype HookState = HookState { hooks :: Map String (Bool, Bool) } deriving (Read, Show)
 
 instance ExtensionClass HookState where
     initialValue = HookState empty
@@ -77,19 +77,19 @@ modify' n f = XS.modify (HookState . setter . hooks)
 -- This module provides actions (that can be set as keybindings)
 -- to be able to cause hooks to be occur on a conditional basis.
 --
--- You can use it by including the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use it by including the following in your @xmonad.hs@:
 --
 -- > import XMonad.Hooks.ToggleHook
 --
 -- and adding 'toggleHook name hook' to your 'ManageHook' where @name@ is the
 -- name of the hook and @hook@ is the hook to execute based on the state.
 --
--- > myManageHook = toggleHook "float" doFloat <+> manageHook def
+-- > myManageHook = toggleHook "float" doFloat <> manageHook def
 --
 -- Additionally, toggleHook' is provided to toggle between two hooks (rather
 -- than on/off).
 --
--- > myManageHook = toggleHook' "oldfocus" (const id) W.focusWindow <+> manageHook def
+-- > myManageHook = toggleHook' "oldfocus" (const id) W.focusWindow <> manageHook def
 --
 -- The 'hookNext' and 'toggleHookNext' functions can be used in key
 -- bindings to set whether the hook is applied or not.
@@ -143,10 +143,10 @@ willHookAllNew n = _get n snd
 -- $pp
 -- The following functions are used to display the current
 -- state of 'hookNext' and 'hookAllNew' in your
--- 'XMonad.Hooks.DynamicLog.dynamicLogWithPP'.
--- 'willHookNextPP' and 'willHookAllNewPP' should be added
--- to the 'XMonad.Hooks.DynamicLog.ppExtras' field of your
--- 'XMonad.Hooks.DynamicLog.PP'.
+-- "XMonad.Hooks.StatusBar". 'willHookNextPP' and
+-- 'willHookAllNewPP' should be added to the
+-- 'XMonad.Hooks.StatusBar.PP.ppExtras' field of your
+-- "XMonad.Hooks.StatusBar.PP".
 --
 -- Use 'runLogHook' to refresh the output of your 'logHook', so
 -- that the effects of a 'hookNext'/... will be visible

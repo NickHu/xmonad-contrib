@@ -1,6 +1,7 @@
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.WindowMenu
+-- Description :  Display window management actions in the center of the focused window.
 -- Copyright   :  (c) Jan Vornberger 2009
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -29,11 +30,11 @@ import qualified XMonad.StackSet as W
 import XMonad.Actions.GridSelect
 import XMonad.Layout.Maximize
 import XMonad.Actions.Minimize
-import XMonad.Util.XUtils (fi)
+import XMonad.Prelude (fi)
 
 -- $usage
 --
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- >    import XMonad.Actions.WindowMenu
 --
@@ -50,9 +51,9 @@ colorizer _ isFg = do
                 else (nBC, fBC)
 
 windowMenu :: X ()
-windowMenu = withFocused $ \w -> do
+windowMenu = withFocused $ \w -> withDisplay $ \d -> withWindowAttributes d w $ \wa -> do
     tags <- asks (workspaces . config)
-    Rectangle x y wh ht <- getSize w
+    let Rectangle x y wh ht = getSize wa
     Rectangle sx sy swh sht <- gets $ screenRect . W.screenDetail . W.current . windowset
     let originFractX = (fi x - fi sx + fi wh / 2) / fi swh
         originFractY = (fi y - fi sy + fi ht / 2) / fi sht
@@ -68,12 +69,10 @@ windowMenu = withFocused $ \w -> do
                     | tag <- tags ]
     runSelectedAction gsConfig actions
 
-getSize :: Window -> X (Rectangle)
-getSize w = do
-  d  <- asks display
-  wa <- io $ getWindowAttributes d w
+getSize :: WindowAttributes -> Rectangle
+getSize wa =
   let x = fi $ wa_x wa
       y = fi $ wa_y wa
       wh = fi $ wa_width wa
       ht = fi $ wa_height wa
-  return (Rectangle x y wh ht)
+   in Rectangle x y wh ht

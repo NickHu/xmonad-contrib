@@ -3,6 +3,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.MultiDishes
+-- Description :  A layout stacking groups of extra windows underneath the master windows.
 -- Copyright   :  (c) Jeremy Apthorp, Nathan Fairhurst
 -- License     :  BSD-style (see LICENSE)
 --
@@ -23,10 +24,10 @@ module XMonad.Layout.MultiDishes (
 
 import XMonad
 import XMonad.StackSet (integrate)
-import Control.Monad (ap)
+import XMonad.Prelude (ap)
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.MultiDishes
 --
@@ -39,7 +40,7 @@ import Control.Monad (ap)
 -- the maximum number of dishes allowed within a stack.
 --
 -- > MultiDishes x 1 y
--- is equivalent to 
+-- is equivalent to
 -- > Dishes x y
 --
 -- The stack with the fewest dishes is always on top, so 4 windows
@@ -52,9 +53,9 @@ import Control.Monad (ap)
 -- > |_______|
 -- > |___|___|
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 data MultiDishes a = MultiDishes Int Int Rational deriving (Show, Read)
 instance LayoutClass MultiDishes a where
@@ -69,7 +70,7 @@ multiDishes h s nmaster dishesPerStack n = if n <= nmaster
                         else ws
  where
     (filledDishStackCount, remainder) =
-      (n - nmaster) `quotRem` (max 1 dishesPerStack)
+      (n - nmaster) `quotRem` max 1 dishesPerStack
 
     (firstDepth, dishStackCount) =
       if remainder == 0 then
@@ -78,7 +79,7 @@ multiDishes h s nmaster dishesPerStack n = if n <= nmaster
         (remainder, filledDishStackCount + 1)
 
     (masterRect, dishesRect) =
-      splitVerticallyBy (1 - (fromIntegral dishStackCount) * h) s
+      splitVerticallyBy (1 - fromIntegral dishStackCount * h) s
 
     dishStackRects =
       splitVertically dishStackCount dishesRect

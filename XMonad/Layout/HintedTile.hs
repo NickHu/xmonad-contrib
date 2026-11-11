@@ -2,6 +2,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.HintedTile
+-- Description :  A gapless tiled layout that obeys window size hints.
 -- Copyright   :  (c) Peter De Wachter <pdewacht@gmail.com>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -23,10 +24,10 @@ module XMonad.Layout.HintedTile (
 
 import XMonad hiding (Tall(..))
 import qualified XMonad.StackSet as W
-import Control.Monad
+import XMonad.Prelude
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.HintedTile
 --
@@ -45,9 +46,9 @@ import Control.Monad
 -- built-in Tall with HintedTile, change @import Xmonad@ to
 -- @import Xmonad hiding (Tall)@.
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 data HintedTile a = HintedTile
     { nmaster     :: !Int         -- ^ number of windows in the master pane
@@ -67,7 +68,7 @@ data Alignment = TopLeft | Center | BottomRight
     deriving ( Show, Read, Eq, Ord )
 
 instance LayoutClass HintedTile Window where
-    doLayout (HintedTile { orientation = o, nmaster = nm, frac = f, alignment = al }) r w' = do
+    doLayout HintedTile{ orientation = o, nmaster = nm, frac = f, alignment = al } r w' = do
         bhs <- mapM mkAdjust w
         let (masters, slaves) = splitAt nm bhs
         return (zip w (tiler masters slaves), Nothing)
@@ -98,15 +99,15 @@ divide al _ [bh] (Rectangle sx sy sw sh) = [Rectangle (align al sx sw w) (align 
     where
     (w, h) = bh (sw, sh)
 
-divide al Tall (bh:bhs) (Rectangle sx sy sw sh) = (Rectangle (align al sx sw w) sy w h) :
-      (divide al Tall bhs (Rectangle sx (sy + fromIntegral h) sw (sh - h)))
+divide al Tall (bh:bhs) (Rectangle sx sy sw sh) = Rectangle (align al sx sw w) sy w h :
+      divide al Tall bhs (Rectangle sx (sy + fromIntegral h) sw (sh - h))
  where
-    (w, h) = bh (sw, sh `div` fromIntegral (1 + (length bhs)))
+    (w, h) = bh (sw, sh `div` fromIntegral (1 + length bhs))
 
-divide al Wide (bh:bhs) (Rectangle sx sy sw sh) = (Rectangle sx (align al sy sh h) w h) :
-      (divide al Wide bhs (Rectangle (sx + fromIntegral w) sy (sw - w) sh))
+divide al Wide (bh:bhs) (Rectangle sx sy sw sh) = Rectangle sx (align al sy sh h) w h :
+      divide al Wide bhs (Rectangle (sx + fromIntegral w) sy (sw - w) sh)
  where
-    (w, h) = bh (sw `div` fromIntegral (1 + (length bhs)), sh)
+    (w, h) = bh (sw `div` fromIntegral (1 + length bhs), sh)
 
 -- Split the screen into two rectangles, using a rational to specify the ratio
 split :: Orientation -> Rational -> Rectangle -> (Rectangle -> [Rectangle])

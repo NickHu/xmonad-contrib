@@ -1,8 +1,9 @@
-{-# LANGUAGE TypeSynonymInstances, MultiParamTypeClasses, DeriveDataTypeable, PatternGuards #-}
+{-# LANGUAGE TypeSynonymInstances, MultiParamTypeClasses, PatternGuards #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Monitor
+-- Description :  Layout modfier for displaying some window (monitor) above other windows.
 -- Copyright   :  (c) Roman Cheplyaka
 -- License     :  BSD-style (see LICENSE)
 --
@@ -32,14 +33,14 @@ module XMonad.Layout.Monitor (
     ) where
 
 import XMonad
+import XMonad.Prelude (unless)
 import XMonad.Layout.LayoutModifier
 import XMonad.Util.WindowProperties
 import XMonad.Hooks.ManageHelpers (doHideIgnore)
 import XMonad.Hooks.FadeInactive (setOpacity)
-import Control.Monad
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.Monitor
 --
@@ -72,7 +73,7 @@ import Control.Monad
 --
 -- Add ManageHook to de-manage monitor windows and apply opacity settings.
 --
--- > manageHook = myManageHook <+> manageMonitor clock
+-- > manageHook = myManageHook <> manageMonitor clock
 --
 -- Apply layout modifier.
 --
@@ -115,7 +116,7 @@ data MonitorMessage = ToggleMonitor | ShowMonitor | HideMonitor
                     | ToggleMonitorNamed String
                     | ShowMonitorNamed String
                     | HideMonitorNamed String
-    deriving (Read,Show,Eq,Typeable)
+    deriving (Read,Show,Eq)
 instance Message MonitorMessage
 
 withMonitor :: Property -> a -> (Window -> X a) -> X a

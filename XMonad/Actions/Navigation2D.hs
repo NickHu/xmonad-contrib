@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveDataTypeable, MultiParamTypeClasses, PatternGuards, RankNTypes, TypeSynonymInstances #-}
+{-# LANGUAGE MultiParamTypeClasses, PatternGuards, RankNTypes, TypeSynonymInstances #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Navigation2D
+-- Description :  Directional navigation of windows and screens.
 -- Copyright   :  (c) 2011  Norbert Zeh <nzeh@cs.dal.ca>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -45,7 +46,6 @@ module XMonad.Actions.Navigation2D ( -- * Usage
                                    , sideNavigation
                                    , sideNavigationWithBias
                                    , hybridOf
-                                   , hybridNavigation
                                    , fullScreenRect
                                    , singleWindowRect
                                    , switchLayer
@@ -57,16 +57,16 @@ module XMonad.Actions.Navigation2D ( -- * Usage
                                    , Direction2D(..)
                                    ) where
 
-import Control.Applicative
 import qualified Data.List as L
 import qualified Data.Map as M
-import Data.Maybe
-import Data.Ord (comparing)
+import Control.Arrow (second)
+import XMonad.Prelude
 import XMonad hiding (Screen)
 import qualified XMonad.StackSet as W
 import qualified XMonad.Util.ExtensibleState as XS
 import XMonad.Util.EZConfig (additionalKeys, additionalKeysP)
 import XMonad.Util.Types
+import qualified Data.List.NonEmpty as NE
 
 -- $usage
 -- #Usage#
@@ -85,7 +85,7 @@ import XMonad.Util.Types
 -- layers and allows customization of the navigation strategy for the tiled
 -- layer based on the layout currently in effect.
 --
--- You can use this module with (a subset of) the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with (a subset of) the following in your @xmonad.hs@:
 --
 -- > import XMonad.Actions.Navigation2D
 --
@@ -98,7 +98,15 @@ import XMonad.Util.Types
 -- >                              False
 -- >               $ def
 --
--- Alternatively, you can use navigation2DP:
+-- /NOTE/: the @def@ argument to 'navigation2D' contains the strategy
+-- that decides which windows actually get selected.  While the default
+-- behaviour tries to keep them into account, if you use modules that
+-- influence tiling in some way, like "XMonad.Layout.Spacing" or
+-- "XMonad.Layout.Gaps", you should think about using a different
+-- strategy, if you find the default behaviour to be unnatural.  Check
+-- out the [finer points](#g:Finer_Points) below for more information.
+--
+-- Alternatively to 'navigation2D', you can use 'navigation2DP':
 --
 -- > main = xmonad $ navigation2DP def
 -- >                               ("<Up>", "<Left>", "<Down>", "<Right>")
@@ -108,7 +116,7 @@ import XMonad.Util.Types
 -- >               $ def
 --
 -- That's it. If instead you'd like more control, you can combine
--- withNavigation2DConfig and additionalNav2DKeys or additionalNav2DKeysP:
+-- 'withNavigation2DConfig' and 'additionalNav2DKeys' or 'additionalNav2DKeysP':
 --
 -- > main = xmonad $ withNavigation2DConfig def
 -- >               $ additionalNav2DKeys (xK_Up, xK_Left, xK_Down, xK_Right)
@@ -162,7 +170,7 @@ import XMonad.Util.Types
 --
 -- For detailed instruction on editing the key binding see:
 --
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 -- $finer_points
 -- #Finer_Points#
@@ -179,9 +187,19 @@ import XMonad.Util.Types
 -- values in the above example to 'True'.  You could also decide you want
 -- wrapping only for a subset of the operations and no wrapping for others.
 --
--- By default, all layouts use the 'defaultTiledNavigation' strategy specified
--- in the 'Navigation2DConfig' (by default, line navigation is used).  To
--- override this behaviour for some layouts, add a pair (\"layout name\",
+-- By default, all layouts use the 'defaultTiledNavigation' strategy
+-- specified in the 'Navigation2DConfig' (by default, line navigation is
+-- used).  Many more navigation strategies are available; some may feel
+-- more natural, depending on the layout and user:
+--
+--   * 'lineNavigation'
+--   * 'centerNavigation'
+--   * 'sideNavigation'
+--   * 'sideNavigationWithBias'
+--
+-- There is also the ability to combine two strategies with 'hybridOf'.
+--
+-- To override the default behaviour for some layouts, add a pair (\"layout name\",
 -- navigation strategy) to the 'layoutNavigation' list in the
 -- 'Navigation2DConfig', where \"layout name\" is the string reported by the
 -- layout's description method (normally what is shown as the layout name in
@@ -327,7 +345,7 @@ centerNavigation = N 2 doCenterNavigation
 -- and push it to the right until it intersects with at least one other window.
 -- Of those windows, one with a point that is the closest to the centre of the
 -- line (+1) is selected. This is probably the most intuitive strategy for the
--- tiled layer when using XMonad.Layout.Spacing.
+-- tiled layer when using "XMonad.Layout.Spacing".
 sideNavigation :: Navigation2D
 sideNavigation = N 1 (doSideNavigationWithBias 1)
 
@@ -359,10 +377,6 @@ hybridOf (N g1 s1) (N g2 s2) = N (max g1 g2) $ applyToBoth s1 s2
   where
     applyToBoth f g a b c = f a b c <|> g a b c
 
-{-# DEPRECATED hybridNavigation "Use hybridOf with lineNavigation and centerNavigation as arguments." #-}
-hybridNavigation :: Navigation2D
-hybridNavigation = hybridOf lineNavigation centerNavigation
-
 -- | Stores the configuration of directional navigation. The 'Default' instance
 -- uses line navigation for the tiled layer and for navigation between screens,
 -- and center navigation for the float layer.  No custom navigation strategies
@@ -385,10 +399,10 @@ data Navigation2DConfig = Navigation2DConfig
                                                        -- function calculates a rectangle for a given unmapped
                                                        -- window from the screen it is on and its window ID.
                                                        -- See <#Finer_Points> for how to use this.
-  } deriving Typeable
+  }
 
 -- | Shorthand for the tedious screen type
-type Screen = W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail
+type Screen = WindowScreen
 
 -- | Convenience function for enabling Navigation2D with typical keybindings.
 -- Takes a Navigation2DConfig, an (up, left, down, right) tuple, a mapping from
@@ -433,7 +447,7 @@ additionalNav2DKeys (u, l, d, r) modifiers wrap =
 -- mapping from key prefix to action, and a bool to indicate if wrapping should
 -- occur, and returns a function from XConfig to XConfig. Example:
 --
--- >  additionalNav2DKeysP def ("w", "a", "s", "d") [("M-", windowGo), ("M-S-", windowSwap)] False myConfig
+-- >  additionalNav2DKeysP ("w", "a", "s", "d") [("M-", windowGo), ("M-S-", windowSwap)] False myConfig
 additionalNav2DKeysP :: (String, String, String, String) -> [(String, Direction2D -> Bool -> X ())] ->
                         Bool -> XConfig l -> XConfig l
 additionalNav2DKeysP (u, l, d, r) modifiers wrap =
@@ -451,7 +465,7 @@ withNavigation2DConfig conf2d xconf = xconf { startupHook  = startupHook xconf
                                             }
 
 instance Default Navigation2DConfig where
-    def                   = Navigation2DConfig { defaultTiledNavigation = lineNavigation
+    def                   = Navigation2DConfig { defaultTiledNavigation = hybridOf lineNavigation sideNavigation
                                                , floatNavigation        = centerNavigation
                                                , screenNavigation       = lineNavigation
                                                , layoutNavigation       = []
@@ -477,7 +491,7 @@ switchLayer = actOnLayer otherLayer
 -- navigation should wrap around (e.g., from the left edge of the leftmost
 -- screen to the right edge of the rightmost screen).
 windowGo :: Direction2D -> Bool -> X ()
-windowGo dir wrap = actOnLayer thisLayer
+windowGo dir = actOnLayer thisLayer
                                ( \ conf cur wins -> windows
                                  $ doTiledNavigation conf dir W.focusWindow cur wins
                                )
@@ -487,7 +501,6 @@ windowGo dir wrap = actOnLayer thisLayer
                                ( \ conf cur wspcs -> windows
                                  $ doScreenNavigation conf dir W.view cur wspcs
                                )
-                               wrap
 
 -- | Swaps the current window with the next window in the given direction and in
 -- the same layer as the current window.  (In the floating layer, all that
@@ -496,7 +509,7 @@ windowGo dir wrap = actOnLayer thisLayer
 -- window's screen but retains its position and size relative to the screen.)
 -- The second argument indicates wrapping (see 'windowGo').
 windowSwap :: Direction2D -> Bool -> X ()
-windowSwap dir wrap = actOnLayer thisLayer
+windowSwap dir = actOnLayer thisLayer
                                  ( \ conf cur wins -> windows
                                    $ doTiledNavigation conf dir swap cur wins
                                  )
@@ -504,32 +517,28 @@ windowSwap dir wrap = actOnLayer thisLayer
                                    $ doFloatNavigation conf dir swap cur wins
                                  )
                                  ( \ _ _ _ -> return () )
-                                 wrap
 
 -- | Moves the current window to the next screen in the given direction.  The
 -- second argument indicates wrapping (see 'windowGo').
 windowToScreen :: Direction2D -> Bool -> X ()
-windowToScreen dir wrap = actOnScreens ( \ conf cur wspcs -> windows
+windowToScreen dir = actOnScreens ( \ conf cur wspcs -> windows
                                          $ doScreenNavigation conf dir W.shift cur wspcs
                                        )
-                                       wrap
 
 -- | Moves the focus to the next screen in the given direction.  The second
 -- argument indicates wrapping (see 'windowGo').
 screenGo :: Direction2D -> Bool -> X ()
-screenGo dir wrap = actOnScreens ( \ conf cur wspcs -> windows
+screenGo dir = actOnScreens ( \ conf cur wspcs -> windows
                                    $ doScreenNavigation conf dir W.view cur wspcs
                                  )
-                                 wrap
 
 -- | Swaps the workspace on the current screen with the workspace on the screen
 -- in the given direction.  The second argument indicates wrapping (see
 -- 'windowGo').
 screenSwap :: Direction2D -> Bool -> X ()
-screenSwap dir wrap = actOnScreens ( \ conf cur wspcs -> windows
+screenSwap dir = actOnScreens ( \ conf cur wspcs -> windows
                                      $ doScreenNavigation conf dir W.greedyView cur wspcs
                                    )
-                                   wrap
 
 -- | Maps each window to a fullscreen rect.  This may not be the same rectangle the
 -- window maps to under the Full layout or a similar layout if the layout
@@ -621,11 +630,8 @@ actOnScreens act wrap = withWindowSet $ \winset -> do
 
 -- | Determines whether a given window is mapped
 isMapped :: Window -> X Bool
-isMapped win  =  withDisplay
-              $  \dpy -> io
-              $  (waIsUnmapped /=)
-              .  wa_map_state
-             <$> getWindowAttributes dpy win
+isMapped = fmap (maybe False ((waIsUnmapped /=) .  wa_map_state))
+         . safeGetWindowAttributes
 
 ----------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------
@@ -649,7 +655,7 @@ doFocusClosestWindow (cur, rect) winrects
   where
     ctr     = centerOf rect
     winctrs = filter ((cur /=) . fst)
-            $ map (\(w, r) -> (w, centerOf r)) winrects
+            $ map (second centerOf) winrects
     closer wc1@(_, c1) wc2@(_, c2) | lDist ctr c1 > lDist ctr c2 = wc2
                                    | otherwise                   = wc1
 
@@ -669,8 +675,7 @@ doTiledNavigation conf dir act cur winrects winset
     nav     = maximum
             $ map ( fromMaybe (defaultTiledNavigation conf)
                   . flip L.lookup (layoutNavigation conf)
-                  )
-            $ layouts
+                  ) layouts
 
 -- | Implements navigation for the float layer
 doFloatNavigation :: Navigation2DConfig
@@ -715,7 +720,7 @@ doLineNavigation dir (cur, rect) winrects
 
     -- The list of windows that are candidates to receive focus.
     winrects'     = filter dirFilter
-                  $ filter ((cur /=) . fst)
+                  . filter ((cur /=) . fst)
                   $ winrects
 
     -- Decides whether a given window matches the criteria to be a candidate to
@@ -756,9 +761,8 @@ doCenterNavigation dir (cur, rect) winrects
     -- center rotated so the right cone becomes the relevant cone.
     -- The windows are ordered in the order they should be preferred
     -- when they are otherwise tied.
-    winctrs = map (\(w, r) -> (w, dirTransform . centerOf $ r))
-            $ stackTransform
-            $ winrects
+    winctrs = map (second (dirTransform . centerOf))
+            $ stackTransform winrects
 
     -- Give preference to windows later in the stack for going left or up and to
     -- windows earlier in the stack for going right or down.  (The stack order
@@ -780,8 +784,7 @@ doCenterNavigation dir (cur, rect) winrects
 
     -- All the points that coincide with the current center and succeed it
     -- in the (appropriately ordered) window stack.
-    onCtr' = L.tail $ L.dropWhile ((cur /=) . fst) onCtr
-             -- tail should be safe here because cur should be in onCtr
+    onCtr' = L.drop 1 $ L.dropWhile ((cur /=) . fst) onCtr
 
     -- All the points that do not coincide with the current center and which
     -- lie in the (rotated) right cone.
@@ -816,7 +819,7 @@ doSideNavigationWithBias ::
   Eq a => Int -> Direction2D -> Rect a -> [Rect a] -> Maybe a
 doSideNavigationWithBias bias dir (cur, rect)
   = fmap fst . listToMaybe
-  . L.sortBy (comparing dist) . foldr acClosest []
+  . L.sortOn dist . foldr acClosest []
   . filter (`toRightOf` (cur, transform rect))
   . map (fmap transform)
   where
@@ -831,8 +834,7 @@ doSideNavigationWithBias bias dir (cur, rect)
     rHalfPiCC r = SideRect (-y2 r) (-y1 r) (x1 r) (x2 r)
 
     -- Apply the above function until d becomes synonymous with R (wolog).
-    rotateToR d = let (_, _:l) = break (d ==) [U, L, D, R]
-                  in  foldr (const $ (.) rHalfPiCC) id l
+    rotateToR d = fromJust . lookup d . zip [R, D, L, U] . iterate rHalfPiCC
 
     transform = rotateToR dir . translate . toSR
 
@@ -844,7 +846,7 @@ doSideNavigationWithBias bias dir (cur, rect)
     -- Greedily accumulate the windows tied for the leftmost left side.
     acClosest (w, r) l@((_, r'):_) | x1 r == x1 r' = (w, r) : l
                                    | x1 r >  x1 r' =          l
-    acClosest (w, r) _                             = (w, r) : []
+    acClosest (w, r) _                             = [(w, r)]
 
     -- Given a (_, SideRect), calculate how far it is from the y=bias line.
     dist (_, r) | (y1 r <= bias) && (bias <= y2 r) = 0
@@ -865,7 +867,7 @@ swap win winset = W.focusWindow cur
     visws    = map W.workspace scrs
 
     -- The focused windows of the visible workspaces
-    focused  = mapMaybe (\ws -> W.focus <$> W.stack ws) visws
+    focused  = mapMaybe (fmap W.focus . W.stack) visws
 
     -- The window lists of the visible workspaces
     wins     = map (W.integrate' . W.stack) visws
@@ -882,22 +884,18 @@ swap win winset = W.focusWindow cur
     -- Reconstruct the workspaces' window stacks to reflect the swap.
     newvisws  = zipWith (\ws wns -> ws { W.stack = W.differentiate wns }) visws newwins
     newscrs   = zipWith (\scr ws -> scr { W.workspace = ws }) scrs newvisws
-    newwinset = winset { W.current = head newscrs
-                       , W.visible = tail newscrs
+    newwinset = winset { W.current = NE.head (notEmpty newscrs) -- Always at least one screen.
+                       , W.visible = drop 1 newscrs
                        }
 
 -- | Calculates the center of a rectangle
 centerOf :: Rectangle -> (Position, Position)
 centerOf r = (rect_x r + fi (rect_width r) `div` 2, rect_y r + fi (rect_height r) `div` 2)
 
--- | Shorthand for integer conversions
-fi :: (Integral a, Num b) => a -> b
-fi = fromIntegral
-
 -- | Functions to choose the subset of windows to operate on
 thisLayer, otherLayer :: a -> a -> a
-thisLayer  = curry fst
-otherLayer = curry snd
+thisLayer  = const
+otherLayer _ x = x
 
 -- | Returns the list of visible workspaces and their screen rects
 visibleWorkspaces :: WindowSet -> Bool -> [WSRect]
@@ -934,8 +932,8 @@ wrapOffsets winset = (max_x - min_x, max_y - min_y)
   where
     min_x = fi $ minimum $ map rect_x rects
     min_y = fi $ minimum $ map rect_y rects
-    max_x = fi $ maximum $ map (\r -> rect_x r + (fi $ rect_width  r)) rects
-    max_y = fi $ maximum $ map (\r -> rect_y r + (fi $ rect_height r)) rects
+    max_x = fi $ maximum $ map (\r -> rect_x r + fi (rect_width  r)) rects
+    max_y = fi $ maximum $ map (\r -> rect_y r + fi (rect_height r)) rects
     rects = map snd $ visibleWorkspaces winset False
 
 
@@ -945,16 +943,16 @@ sortedScreens :: WindowSet -> [Screen]
 sortedScreens winset = L.sortBy cmp
                      $ W.screens winset
   where
-    cmp s1 s2 | x1 < x2   = LT
-              | x1 > x2   = GT
-              | y1 < x2   = LT
-              | y1 > y2   = GT
+    cmp s1 s2 | x < x'   = LT
+              | x > x'   = GT
+              | y < x'   = LT
+              | y > y'   = GT
               | otherwise = EQ
       where
-        (x1, y1) = centerOf (screenRect . W.screenDetail $ s1)
-        (x2, y2) = centerOf (screenRect . W.screenDetail $ s2)
+        (x , y ) = centerOf (screenRect . W.screenDetail $ s1)
+        (x', y') = centerOf (screenRect . W.screenDetail $ s2)
 
 
 -- | Calculates the L1-distance between two points.
 lDist :: (Position, Position) -> (Position, Position) -> Int
-lDist (x1, y1) (x2, y2) = abs (fi $ x1 - x2) + abs (fi $ y1 - y2)
+lDist (x, y) (x', y') = abs (fi $ x - x') + abs (fi $ y - y')

@@ -1,7 +1,7 @@
-{-# LANGUAGE DeriveDataTypeable #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Hooks.DynamicBars
+-- Description :  Manage per-screen status bars.
 -- Copyright   :  (c) Ben Boeckel 2012
 -- License     :  BSD-style (as xmonad)
 --
@@ -13,7 +13,7 @@
 --
 -----------------------------------------------------------------------------
 
-module XMonad.Hooks.DynamicBars (
+module XMonad.Hooks.DynamicBars {-# DEPRECATED "Use XMonad.Hooks.StatusBar instead" #-} (
   -- * Usage
   -- $usage
     DynamicStatusBar
@@ -29,14 +29,8 @@ module XMonad.Hooks.DynamicBars (
 
 import Prelude
 
-import Control.Monad
 import Control.Monad.Trans (lift)
 import Control.Monad.Writer (WriterT, execWriterT, tell)
-
-import Data.List
-import Data.Maybe
-import Data.Monoid
-import Data.Foldable (traverse_)
 
 import Graphics.X11.Xinerama
 import Graphics.X11.Xlib
@@ -46,6 +40,7 @@ import Graphics.X11.Xrandr
 import System.IO
 
 import XMonad
+import XMonad.Prelude
 import qualified XMonad.StackSet as W
 import XMonad.Hooks.DynamicLog
 import qualified XMonad.Util.ExtensibleState as XS
@@ -84,9 +79,9 @@ import qualified XMonad.Util.ExtensibleState as XS
 -- is called when the number of screens changes and on startup.
 --
 
-data DynStatusBarInfo = DynStatusBarInfo
+newtype DynStatusBarInfo = DynStatusBarInfo
   { dsbInfo :: [(ScreenId, Handle)]
-  } deriving (Typeable)
+  }
 
 instance ExtensionClass DynStatusBarInfo where
   initialValue = DynStatusBarInfo []
@@ -118,12 +113,12 @@ dynStatusBarEventHook' :: DynamicStatusBar -> DynamicStatusBarPartialCleanup -> 
 dynStatusBarEventHook' sb cleanup = dynStatusBarRun (updateStatusBars' sb cleanup)
 
 dynStatusBarRun :: X () -> Event -> X All
-dynStatusBarRun action (RRScreenChangeNotifyEvent {}) = action >> return (All True)
-dynStatusBarRun _      _                              = return (All True)
+dynStatusBarRun action RRScreenChangeNotifyEvent{} = action >> return (All True)
+dynStatusBarRun _      _                           = return (All True)
 
 updateStatusBars :: DynamicStatusBar -> DynamicStatusBarCleanup -> X ()
 updateStatusBars sb cleanup = do
-  (dsbInfoScreens, dsbInfoHandles) <- XS.get >>= return . unzip . dsbInfo
+  (dsbInfoScreens, dsbInfoHandles) <- XS.get <&> unzip . dsbInfo
   screens <- getScreens
   when (screens /= dsbInfoScreens) $ do
       newHandles <- liftIO $ do
@@ -134,14 +129,14 @@ updateStatusBars sb cleanup = do
 
 updateStatusBars' :: DynamicStatusBar -> DynamicStatusBarPartialCleanup -> X ()
 updateStatusBars' sb cleanup = do
-  (dsbInfoScreens, dsbInfoHandles) <- XS.get >>= return . unzip . dsbInfo
+  (dsbInfoScreens, dsbInfoHandles) <- XS.get <&> (unzip . dsbInfo)
   screens <- getScreens
   when (screens /= dsbInfoScreens) $ do
       let oldInfo = zip dsbInfoScreens dsbInfoHandles
       let (infoToKeep, infoToClose) = partition (flip elem screens . fst) oldInfo
       newInfo <- liftIO $ do
-          mapM_ hClose $ map snd infoToClose
-          mapM_ cleanup $ map fst infoToClose
+          mapM_ (hClose . snd) infoToClose
+          mapM_ (cleanup . fst) infoToClose
           let newScreens = screens \\ dsbInfoScreens
           newHandles <- mapM sb newScreens
           return $ zip newScreens newHandles
@@ -158,7 +153,7 @@ multiPP = multiPPFormat dynamicLogString
 
 multiPPFormat :: (PP -> X String) -> PP -> PP -> X ()
 multiPPFormat dynlStr focusPP unfocusPP = do
-  (_, dsbInfoHandles) <- XS.get >>= return . unzip . dsbInfo
+  (_, dsbInfoHandles) <- XS.get <&> unzip . dsbInfo
   multiPP' dynlStr focusPP unfocusPP dsbInfoHandles
 
 multiPP' :: (PP -> X String) -> PP -> PP -> [Handle] -> X ()

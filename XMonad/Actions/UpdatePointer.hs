@@ -2,6 +2,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonadContrib.UpdatePointer
+-- Description :  Causes the pointer to follow whichever window focus changes to.
 -- Copyright   :  (c) Robert Marlow <robreim@bobturf.org>, 2015 Evgeny Kurnevsky
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -24,15 +25,13 @@ module XMonad.Actions.UpdatePointer
     where
 
 import XMonad
-import XMonad.Util.XUtils (fi)
-import Control.Arrow
-import Control.Monad
+import XMonad.Prelude
 import XMonad.StackSet (member, peek, screenDetail, current)
-import Data.Maybe
-import Control.Exception
+
+import Control.Arrow ((&&&), (***))
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad
 -- > import XMonad.Actions.UpdatePointer
@@ -61,6 +60,11 @@ import Control.Exception
 -- | Update the pointer's location to the currently focused
 -- window or empty screen unless it's already there, or unless the user was changing
 -- focus with the mouse
+--
+-- See also 'XMonad.Actions.UpdateFocus.focusUnderPointer' for an inverse
+-- operation that updates the focus instead. The two can be combined in a
+-- single config if neither goes into 'logHook' but are invoked explicitly in
+-- individual key bindings.
 updatePointer :: (Rational, Rational) -> (Rational, Rational) -> X ()
 updatePointer refPos ratio = do
   ws <- gets windowset
@@ -68,10 +72,9 @@ updatePointer refPos ratio = do
   let defaultRect = screenRect $ screenDetail $ current ws
   rect <- case peek ws of
         Nothing -> return defaultRect
-        Just w  -> do tryAttributes <- io $ try $ getWindowAttributes dpy w
-                      return $ case tryAttributes of
-                        Left (_ :: SomeException) -> defaultRect
-                        Right attributes          -> windowAttributesToRectangle attributes
+        Just w  -> maybe defaultRect windowAttributesToRectangle
+               <$> safeGetWindowAttributes w
+
   root <- asks theRoot
   mouseIsMoving <- asks mouseFocused
   (_sameRoot,_,currentWindow,rootX,rootY,_,_,_) <- io $ queryPointer dpy root
@@ -105,6 +108,7 @@ lerp :: (RealFrac r, Real a, Real b) => r -> a -> b -> r
 lerp r a b = (1 - r) * realToFrac a + r * realToFrac b
 
 clip :: Ord a => (a, a) -> a -> a
-clip (lower, upper) x = if x < lower then lower
-    else if x > upper then upper else x
-
+clip (lower, upper) x
+  | x < lower = lower
+  | x > upper = upper
+  | otherwise = x

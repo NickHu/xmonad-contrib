@@ -1,11 +1,10 @@
 {-# OPTIONS_GHC -fno-warn-name-shadowing -fno-warn-unused-binds #-}
-{-# LANGUAGE StandaloneDeriving, FlexibleContexts, DeriveDataTypeable
-  , UndecidableInstances, FlexibleInstances, LambdaCase, MultiParamTypeClasses
-  , PatternGuards, Rank2Types, TypeSynonymInstances #-}
+{-# LANGUAGE StandaloneDeriving, FlexibleContexts, UndecidableInstances, FlexibleInstances, MultiParamTypeClasses, PatternGuards, Rank2Types #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Groups
+-- Description :  Split windows in layout groups that are managed by another layout.
 -- Copyright   :  Quentin Moser <moserq@gmail.com>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -54,15 +53,12 @@ module XMonad.Layout.Groups ( -- * Usage
                             ) where
 
 import XMonad
+import XMonad.Prelude hiding (group)
 import qualified XMonad.StackSet as W
 
 import XMonad.Util.Stack
 
-import Data.Maybe (isJust, isNothing, fromMaybe, catMaybes, fromJust)
-import Data.List ((\\))
 import Control.Arrow ((>>>))
-import Control.Applicative ((<|>))
-import Control.Monad (forM,void)
 
 -- $usage
 -- This module provides a layout combinator that allows you
@@ -109,8 +105,8 @@ data Uniq = U Integer Integer
 -- seed. All keys generated with this method will be different
 -- provided you don't use 'gen' again with a key from the list.
 -- (if you need to do that, see 'split' instead)
-gen :: Uniq -> (Uniq, [Uniq])
-gen (U i1 i2) = (U (i1+1) i2, zipWith U (repeat i1) [i2..])
+gen :: Uniq -> (Uniq, Stream Uniq)
+gen (U i1 i2) = (U (i1+1) i2, fmap (U i1) (fromList [i2..]))
 
 -- | Split an infinite list into two. I ended up not
 -- needing this, but let's keep it just in case.
@@ -122,7 +118,7 @@ gen (U i1 i2) = (U (i1+1) i2, zipWith U (repeat i1) [i2..])
 -- | Add a unique identity to a layout so we can
 -- follow it around.
 data WithID l a = ID { getID :: Uniq
-                     , unID :: (l a)}
+                     , unID :: l a}
   deriving (Show, Read)
 
 -- | Compare the ids of two 'WithID' values
@@ -134,8 +130,7 @@ instance Eq (WithID l a) where
 
 instance LayoutClass l a => LayoutClass (WithID l) a where
     runLayout ws@W.Workspace { W.layout = ID id l } r
-        = do (placements, ml') <- flip runLayout r
-                                     ws { W.layout = l}
+        = do (placements, ml') <- runLayout ws{ W.layout = l} r
              return (placements, ID id <$> ml')
     handleMessage (ID id l) sm = do ml' <- handleMessage l sm
                                     return $ ID id <$> ml'
@@ -188,7 +183,6 @@ data GroupsMessage = ToEnclosing SomeMessage -- ^ Send a message to the enclosin
                    | Modify ModifySpec -- ^ Modify the ordering\/grouping\/focusing
                                        -- of windows according to a 'ModifySpec'
                    | ModifyX ModifySpecX -- ^ Same as 'Modify', but within the 'X' monad
-                     deriving Typeable
 
 instance Show GroupsMessage where
     show (ToEnclosing _) = "ToEnclosing {...}"
@@ -197,21 +191,22 @@ instance Show GroupsMessage where
     show (ToAll _) = "ToAll {...}"
     show Refocus = "Refocus"
     show (Modify _) = "Modify {...}"
+    show (ModifyX _) = "ModifyX {...}"
 
 instance Message GroupsMessage
 
 modifyGroups :: (Zipper (Group l a) -> Zipper (Group l a))
              -> Groups l l2 a -> Groups l l2 a
-modifyGroups f g = let (seed', id:_) = gen (seed g)
-                       defaultGroups = fromJust $ singletonZ $ G (ID id $ baseLayout g) emptyZ
+modifyGroups f g = let (seed', ident :~ _) = gen (seed g)
+                       defaultGroups = fromJust $ singletonZ $ G (ID ident $ baseLayout g) emptyZ
                    in g { groups = fromMaybe defaultGroups . f . Just $ groups g
                         , seed = seed' }
 
 modifyGroupsX :: (Zipper (Group l a) -> X (Zipper (Group l a)))
               -> Groups l l2 a -> X (Groups l l2 a)
 modifyGroupsX f g = do
-  let (seed', id:_) = gen (seed g)
-      defaultGroups = fromJust $ singletonZ $ G (ID id $ baseLayout g) emptyZ
+  let (seed', ident :~ _) = gen (seed g)
+      defaultGroups = fromJust $ singletonZ $ G (ID ident $ baseLayout g) emptyZ
   g' <- f . Just $ groups g
   return g { groups = fromMaybe defaultGroups g', seed = seed' }
 
@@ -223,28 +218,28 @@ modifyGroupsX f g = do
 -- other stack changes as gracefully as possible.
 readapt :: Eq a => Zipper a -> Groups l l2 a -> Groups l l2 a
 readapt z g = let mf = getFocusZ z
-                  (seed', id:_) = gen $ seed g
+                  (seed', ident :~ _) = gen $ seed g
                   g' = g { seed = seed' }
               in flip modifyGroups g' $ mapZ_ (onZipper $ removeDeleted z)
                                         >>> filterKeepLast (isJust . gZipper)
                                         >>> findNewWindows (W.integrate' z)
-                                        >>> addWindows (ID id $ baseLayout g)
+                                        >>> addWindows (ID ident $ baseLayout g)
                                         >>> focusGroup mf
                                         >>> onFocusedZ (onZipper $ focusWindow mf)
     where filterKeepLast _ Nothing = Nothing
-          filterKeepLast f z@(Just s) = maybe (singletonZ $ W.focus s) Just
-                                            $ filterZ_ f z
+          filterKeepLast f z@(Just s) =  filterZ_ f z
+                                     <|> singletonZ (W.focus s)
 
 -- | Remove the windows from a group which are no longer present in
 -- the stack.
 removeDeleted :: Eq a => Zipper a -> Zipper a -> Zipper a
-removeDeleted z = filterZ_ (flip elemZ z)
+removeDeleted z = filterZ_ (`elemZ` z)
 
 -- | Identify the windows not already in a group.
 findNewWindows :: Eq a => [a] -> Zipper (Group l a)
                -> (Zipper (Group l a), [a])
 findNewWindows as gs = (gs, foldrZ_ removePresent as gs)
-    where removePresent g as' = filter (not . flip elemZ (gZipper g)) as'
+    where removePresent g = filter (not . flip elemZ (gZipper g))
 
 -- | Add windows to the focused group. If you need to create one,
 -- use the given layout and an id from the given list.
@@ -288,7 +283,7 @@ instance (LayoutClass l Window, LayoutClass l2 (Group l Window))
                let placements = concatMap fst results
                    newL = justMakeNew l mpart' (map snd results ++ hidden')
 
-               return $ (placements, newL)
+               return (placements, newL)
 
         handleMessage l@(Groups _ p _ _) sm | Just (ToEnclosing sm') <- fromMessage sm
             = do mp' <- handleMessage p sm'
@@ -323,7 +318,7 @@ instance (LayoutClass l Window, LayoutClass l2 (Group l Window))
                       where step True (G l _) = handleMessage l sm
                             step False _ = return Nothing
                   handleOnIndex i sm z = mapM step $ zip [0..] $ W.integrate z
-                      where step (j, (G l _)) | i == j = handleMessage l sm
+                      where step (j, G l _) | i == j = handleMessage l sm
                             step _ = return Nothing
 
 
@@ -384,44 +379,43 @@ type ModifySpecX = forall l. WithID l Window
 -- | Apply a ModifySpec.
 applySpec :: ModifySpec -> Groups l l2 Window -> Maybe (Groups l l2 Window)
 applySpec f g =
-    let (seed', id:ids) =  gen $ seed g
-        g' = flip modifyGroups g $ f (ID id $ baseLayout g)
+    let (seed', ident :~ ids) =  gen $ seed g -- gen generates an infinite list
+        g' = flip modifyGroups g $ f (ID ident $ baseLayout g)
                                    >>> toTags
                                    >>> foldr (reID g) ((ids, []), [])
                                    >>> snd
                                    >>> fromTags
-    in case groups g == groups g' of
-      True -> Nothing
-      False -> Just g' { seed = seed' }
+    in if groups g == groups g'
+       then Nothing
+       else Just g' { seed = seed' }
 
 applySpecX :: ModifySpecX -> Groups l l2 Window -> X (Maybe (Groups l l2 Window))
 applySpecX f g = do
-    let (seed', id:ids) = gen $ seed g
-    g' <- flip modifyGroupsX g $ f (ID id $ baseLayout g)
+    let (seed', ident :~ ids) = gen $ seed g -- gen generates an infinite list
+    g' <- flip modifyGroupsX g $ f (ID ident $ baseLayout g)
                                 >>> fmap toTags
                                 >>> fmap (foldr (reID g) ((ids, []), []))
                                 >>> fmap snd
                                 >>> fmap fromTags
-    return $ case groups g == groups g' of
-      True -> Nothing
-      False -> Just g' { seed = seed' }
+    return $ if groups g == groups g'
+             then Nothing
+             else Just g' { seed = seed' }
 
 reID :: Groups l l2 Window
      -> Either (Group l Window) (Group l Window)
-     -> (([Uniq], [Uniq]), [Either (Group l Window) (Group l Window)])
-     -> (([Uniq], [Uniq]), [Either (Group l Window) (Group l Window)])
-reID _ _ (([], _), _) = undefined -- The list of ids is infinite
-reID g eg ((id:ids, seen), egs) = case elem myID seen of
-                                    False -> ((id:ids, myID:seen), eg:egs)
-                                    True -> ((ids, seen), mapE_ (setID id) eg:egs)
-    where myID = getID $ gLayout $ fromE eg
-          setID id (G (ID _ _) z) = G (ID id $ baseLayout g) z
+     -> ((Stream Uniq, [Uniq]), [Either (Group l Window) (Group l Window)])
+     -> ((Stream Uniq, [Uniq]), [Either (Group l Window) (Group l Window)])
+reID g eg ((ident :~ ids, seen), egs)
+    | myID `elem` seen = ((ids, seen), mapE_ (setID ident) eg:egs)
+    | otherwise = ((ident :~ ids, myID:seen), eg:egs)
+  where myID = getID $ gLayout $ fromE eg
+        setID id (G (ID _ _) z) = G (ID id $ baseLayout g) z
 
 -- ** Misc. ModifySpecs
 
 -- | helper
 onFocused :: (Zipper Window -> Zipper Window) -> ModifySpec
-onFocused f _ gs = onFocusedZ (onZipper f) gs
+onFocused f _ = onFocusedZ (onZipper f)
 
 -- | Swap the focused window with the previous one.
 swapUp :: ModifySpec

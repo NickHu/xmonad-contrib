@@ -1,6 +1,8 @@
+{-# LANGUAGE CPP #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.Ungrab
+-- Description :  Release xmonad's keyboard and pointer grabs immediately.
 -- Copyright   :  (c) 2016 Brandon S Allbery
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -12,12 +14,16 @@
 --
 -----------------------------------------------------------------------------
 
-module XMonad.Util.Ungrab
+module XMonad.Util.Ungrab {-# DEPRECATED "Use XMonad.Operations.unGrab instead" #-}
     ( -- * Usage:
       -- $usage
       unGrab
     ) where
 
+#if MIN_VERSION_xmonad(0, 17, 9)
+import XMonad.Operations (unGrab)
+#else
+import Graphics.X11.Xlib (sync)
 import Graphics.X11.Xlib.Extras (currentTime)
 import Graphics.X11.Xlib.Misc (ungrabKeyboard, ungrabPointer)
 import XMonad.Core
@@ -40,4 +46,5 @@ import XMonad.Core
 
 -- | Release xmonad's keyboard grab, so other grabbers can do their thing.
 unGrab :: X ()
-unGrab = withDisplay $ \d -> io (ungrabKeyboard d currentTime >> ungrabPointer d currentTime)
+unGrab = withDisplay $ \d -> io (ungrabKeyboard d currentTime >> ungrabPointer d currentTime >> sync d False)
+#endif

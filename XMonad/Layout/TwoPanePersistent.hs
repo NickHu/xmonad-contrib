@@ -2,6 +2,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.TwoPanePersistent
+-- Description :  "XMonad.Layout.TwoPane" with a persistent stack window.
 -- Copyright   :  (c) Chayanon Wichitrnithed
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -27,7 +28,7 @@ import XMonad.StackSet (focus, up, down, Stack, Stack(..))
 import XMonad hiding (focus)
 
 -- $usage
--- Import the module in @~\/.xmonad\/xmonad.hs@:
+-- Import the module in @xmonad.hs@:
 --
 -- > import XMonad.Layout.TwoPanePersistent
 --
@@ -38,8 +39,8 @@ import XMonad hiding (focus)
 
 
 data TwoPanePersistent a = TwoPanePersistent
-  { slaveWin :: (Maybe a)  -- ^ slave window; if 'Nothing' or not in the current workspace,
-                           -- the window below the master will go into the slave pane
+  { slaveWin :: Maybe a  -- ^ slave window; if 'Nothing' or not in the current workspace,
+                         -- the window below the master will go into the slave pane
   , dFrac :: Rational -- ^ shrink/expand size
   , mFrac :: Rational -- ^ initial master size
   } deriving (Show, Read)
@@ -57,8 +58,8 @@ instance (Show a, Eq a) => LayoutClass TwoPanePersistent a where
 
   pureMessage (TwoPanePersistent w delta split) x =
     case fromMessage x of
-      Just Shrink -> Just (TwoPanePersistent w delta (split - delta))
-      Just Expand -> Just (TwoPanePersistent w delta (split + delta))
+      Just Shrink -> Just (TwoPanePersistent w delta (max 0 (split - delta)))
+      Just Expand -> Just (TwoPanePersistent w delta (min 1 (split + delta)))
       _ -> Nothing
 
   description _ = "TwoPanePersistent"
@@ -76,7 +77,7 @@ focusedMaster (TwoPanePersistent w delta split) s r =
                                     , Just $ TwoPanePersistent (Just next) delta split )
                     in case w of
                       -- if retains state, preserve the layout
-                      Just win -> if win `elem` (down s) && (focus s /= win)
+                      Just win -> if win `elem` down s && (focus s /= win)
                                   then ( [(focus s, left), (win, right)]
                                        , Just $ TwoPanePersistent w delta split )
                                   else nextSlave

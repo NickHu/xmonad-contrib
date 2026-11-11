@@ -6,11 +6,12 @@
 -- Compile with @ghc --make xmonadctl.hs@
 -- For usage help, do @xmonadctl -h@
 
+import Control.Monad
+import Data.Char
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras
 import System.Environment
 import System.IO
-import Data.Char
 
 main :: IO ()
 main = parse True "XMONAD_COMMAND" =<< getArgs
@@ -33,14 +34,13 @@ parse input addr args = case args of
 
 repl :: String -> IO ()
 repl addr = do e <- isEOF
-               case e of
-                True -> return ()
-                False -> do l <- getLine
-                            sendCommand addr l
-                            repl addr
+               unless e $ do
+                 l <- getLine
+                 sendCommand addr l
+                 repl addr
 
 sendAll :: String -> [String] -> IO ()
-sendAll addr ss = foldr (\a b -> sendCommand addr a >> b) (return ()) ss
+sendAll addr = foldr (\a b -> sendCommand addr a >> b) (return ())
 
 sendCommand :: String -> String -> IO ()
 sendCommand addr s = do

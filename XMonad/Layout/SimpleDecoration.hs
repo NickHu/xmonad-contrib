@@ -2,6 +2,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.SimpleDecoration
+-- Description :  Add simple decorations to the windows of a given layout.
 -- Copyright   :  (c) 2007 Andrea Rossato
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -31,7 +32,7 @@ import XMonad.Layout.Decoration
 
 -- $usage
 -- You can use this module with the following in your
--- @~\/.xmonad\/xmonad.hs@:
+-- @xmonad.hs@:
 --
 -- > import XMonad.Layout.SimpleDecoration
 --
@@ -41,9 +42,9 @@ import XMonad.Layout.Decoration
 -- > myL = simpleDeco shrinkText def (layoutHook def)
 -- > main = xmonad def { layoutHook = myL }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 --
 -- You can also edit the default configuration options.
 --
@@ -52,14 +53,14 @@ import XMonad.Layout.Decoration
 --
 -- and
 --
--- > myL = dwmStyle shrinkText mySDConfig (layoutHook def)
+-- > myL = simpleDeco shrinkText mySDConfig (layoutHook def)
 
 -- | Add simple decorations to windows of a layout.
 simpleDeco :: (Eq a, Shrinker s) => s -> Theme
            -> l a -> ModifiedLayout (Decoration SimpleDecoration s) l a
 simpleDeco s c = decoration s c $ Simple True
 
-data SimpleDecoration a = Simple Bool deriving (Show, Read)
+newtype SimpleDecoration a = Simple Bool deriving (Show, Read)
 
 instance Eq a => DecorationStyle SimpleDecoration a where
     describeDeco _ = "Simple"

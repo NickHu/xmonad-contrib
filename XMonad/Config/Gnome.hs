@@ -3,6 +3,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Config.Gnome
+-- Description  : Config for integrating xmonad with GNOME.
 -- Copyright    : (c) Spencer Janssen <spencerjanssen@gmail.com>
 -- License      : BSD
 --
@@ -31,7 +32,7 @@ import qualified Data.Map as M
 import System.Environment (getEnvironment)
 
 -- $usage
--- To use this module, start with the following @~\/.xmonad\/xmonad.hs@:
+-- To use this module, start with the following @xmonad.hs@:
 --
 -- > import XMonad
 -- > import XMonad.Config.Gnome
@@ -42,10 +43,10 @@ import System.Environment (getEnvironment)
 
 gnomeConfig = desktopConfig
     { terminal = "gnome-terminal"
-    , keys     = gnomeKeys <+> keys desktopConfig
+    , keys     = gnomeKeys <> keys desktopConfig
     , startupHook = gnomeRegister >> startupHook desktopConfig }
 
-gnomeKeys (XConfig {modMask = modm}) = M.fromList $
+gnomeKeys XConfig{modMask = modm} = M.fromList
     [ ((modm, xK_p), gnomeRun)
     , ((modm .|. shiftMask, xK_q), spawn "gnome-session-quit --logout") ]
 

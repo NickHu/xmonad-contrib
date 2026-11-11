@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.MouseGestures
+-- Description :  Support for simple mouse gestures.
 -- Copyright   :  (c) Lukas Mai
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -21,18 +22,17 @@ module XMonad.Actions.MouseGestures (
     mkCollect
 ) where
 
+import XMonad.Prelude
 import XMonad
 import XMonad.Util.Types (Direction2D(..))
 
 import Data.IORef
 import qualified Data.Map as M
 import Data.Map (Map)
-import Data.Maybe
-import Control.Monad
 
 -- $usage
 --
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Actions.MouseGestures
 -- > import qualified XMonad.StackSet as W
@@ -79,17 +79,11 @@ gauge :: (Direction2D -> X ()) -> Pos -> IORef (Maybe (Direction2D, Pos)) -> Pos
 gauge hook op st nx ny = do
     let np = (nx, ny)
     stx <- io $ readIORef st
-    let
-        (~(Just od), pivot) = case stx of
-            Nothing -> (Nothing, op)
-            Just (d, zp) -> (Just d, zp)
-        cont = do
-            guard $ significant np pivot
-            return $ do
-                let d' = dir pivot np
-                when (isNothing stx || od /= d') $ hook d'
-                io $ writeIORef st (Just (d', np))
-    fromMaybe (return ()) cont
+    let pivot = maybe op snd stx
+    when (significant np pivot) $ do
+        let d' = dir pivot np
+        when ((fst <$> stx) /= Just d') $ hook d'
+        io $ writeIORef st (Just (d', np))
     where
     significant a b = delta a b >= 10
 
@@ -111,7 +105,7 @@ mouseGestureH moveHook endHook = do
 mouseGesture :: Map [Direction2D] (Window -> X ()) -> Window -> X ()
 mouseGesture tbl win = do
     (mov, end) <- mkCollect
-    mouseGestureH (\d -> mov d >> return ()) $ end >>= \gest ->
+    mouseGestureH (void . mov) $ end >>= \gest ->
         case M.lookup gest tbl of
             Nothing -> return ()
             Just f -> f win

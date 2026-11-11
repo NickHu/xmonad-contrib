@@ -1,8 +1,9 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, TypeSynonymInstances, FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, FlexibleContexts #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.IM
+-- Description :  Layout modfier for multi-windowed instant messengers like Psi or Tkabber.
 -- Copyright   :  (c) Roman Cheplyaka, Ivan N. Veselov <veselov@gmail.com>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -29,13 +30,16 @@ module XMonad.Layout.IM (
 ) where
 
 import XMonad
-import qualified XMonad.StackSet as S
 import XMonad.Layout.Grid
 import XMonad.Layout.LayoutModifier
+import XMonad.Prelude
 import XMonad.Util.WindowProperties
+import qualified XMonad.StackSet as S
+
+import Control.Arrow (first)
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.IM
 -- > import Data.Ratio ((%))
@@ -52,9 +56,9 @@ import XMonad.Util.WindowProperties
 --
 -- Screenshot: <http://haskell.org/haskellwiki/Image:Xmonad-layout-im.png>
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 -- $hints
 --
@@ -97,20 +101,15 @@ applyIM :: (LayoutClass l Window) =>
             -> X ([(Window, Rectangle)], Maybe (l Window))
 applyIM ratio prop wksp rect = do
     let stack = S.stack wksp
-    let ws = S.integrate' $ stack
+    let ws = S.integrate' stack
     let (masterRect, slaveRect) = splitHorizontallyBy ratio rect
     master <- findM (hasProperty prop) ws
     case master of
         Just w -> do
             let filteredStack = stack >>= S.filter (w /=)
             wrs <- runLayout (wksp {S.stack = filteredStack}) slaveRect
-            return ((w, masterRect) : fst wrs, snd wrs)
+            return (first ((w, masterRect) :) wrs)
         Nothing -> runLayout wksp rect
-
--- | Like find, but works with monadic computation instead of pure function.
-findM :: Monad m => (a -> m Bool) -> [a] -> m (Maybe a)
-findM _ [] = return Nothing
-findM f (x:xs) = do { b <- f x; if b then return (Just x) else findM f xs }
 
 -- | This is for compatibility with old configs only and will be removed in future versions!
 data IM a = IM Rational Property deriving (Read, Show)

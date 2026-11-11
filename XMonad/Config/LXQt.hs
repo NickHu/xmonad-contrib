@@ -3,6 +3,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Config.LXQt
+-- Description  : Config for integrating xmonad with LXQt.
 -- Copyright    : (c) Petr Shevtsov <petr.shevtsov@gmail.com>
 -- License      : BSD
 --
@@ -26,7 +27,7 @@ import XMonad.Config.Desktop
 import qualified Data.Map as M
 
 -- $usage
--- To use this module, start with the following @~\/.xmonad\/xmonad.hs@:
+-- To use this module, start with the following @xmonad.hs@:
 --
 -- > import XMonad
 -- > import XMonad.Config.LXQt
@@ -37,9 +38,9 @@ import qualified Data.Map as M
 
 lxqtConfig = desktopConfig
     { terminal = "qterminal"
-    , keys     = lxqtKeys <+> keys desktopConfig }
+    , keys     = lxqtKeys <> keys desktopConfig }
 
-lxqtKeys (XConfig {modMask = modm}) = M.fromList $
+lxqtKeys XConfig{modMask = modm} = M.fromList
     [ ((modm,               xK_p), spawn "lxqt-runner")
     , ((modm .|. shiftMask, xK_q), spawn "lxqt-leave")
     ]

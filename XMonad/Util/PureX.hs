@@ -1,8 +1,9 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, FlexibleContexts #-}
+{-# LANGUAGE DerivingVia, GeneralizedNewtypeDeriving, FlexibleContexts #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.PureX
+-- Description :  Composable @X@ actions.
 -- Copyright   :  L. S. Leary 2018
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -46,22 +47,19 @@ module XMonad.Util.PureX (
   getStack, putStack, peek,
   focusWindow, focusNth,
   view, greedyView, invisiView,
-  shift, curScreen, curWorkspace,
+  shift, shiftWin, curScreen, curWorkspace,
   curTag, curScreenId,
 ) where
 
 -- xmonad
 import XMonad
+import XMonad.Prelude
 import qualified XMonad.StackSet as W
 import qualified XMonad.Actions.FocusNth
 
 -- mtl
 import Control.Monad.State
 import Control.Monad.Reader
-
--- base
-import Data.Semigroup (Any(..))
-import Control.Applicative (liftA2)
 
 -- }}}
 
@@ -112,13 +110,7 @@ import Control.Applicative (liftA2)
 -- | The @PureX@ newtype over @ReaderT XConf (State XState) a@.
 newtype PureX a = PureX (ReaderT XConf (State XState) a)
   deriving (Functor, Applicative, Monad, MonadReader XConf, MonadState XState)
-
-instance Semigroup a => Semigroup (PureX a) where
-  (<>) = liftA2 (<>)
-
-instance Monoid a => Monoid (PureX a) where
-  mappend = liftA2 mappend
-  mempty  = return mempty
+  deriving (Semigroup, Monoid) via Ap PureX a
 
 -- | The @XLike@ typeclass over monads reading @XConf@ values and tracking
 --   @XState@ state.
@@ -138,7 +130,7 @@ runPureX (PureX m) = runState . runReaderT m
 -- | Despite appearing less general, @PureX a@ is actually isomorphic to
 --   @XLike m => m a@.
 toXLike :: XLike m => PureX a -> m a
-toXLike pa = state =<< runPureX pa <$> ask
+toXLike pa = state . runPureX pa =<< ask
 
 -- | A generalisation of 'windowBracket'. Handles refreshing for an action that
 --   __performs no refresh of its own__ but can indicate that it needs one
@@ -158,7 +150,7 @@ defile = void . windowBracket' getAny
 -- | A version of @windowBracket@ specialised to take an @X ()@ action and
 --   perform a refresh handling any changes it makes.
 handlingRefresh :: X () -> X ()
-handlingRefresh = windowBracket (\_ -> True)
+handlingRefresh = windowBracket (const True)
 
 -- }}}
 
@@ -170,7 +162,7 @@ when' b ma = if b then ma else return mempty
 
 -- | A @whenX@/@whenM@ that accepts a monoidal return value.
 whenM' :: (Monad m, Monoid a) => m Bool -> m a -> m a
-whenM' mb m = when' <$> mb >>= ($ m)
+whenM' mb m = ($ m) . when' =<< mb
 
 -- | A 'whenJust' that accepts a monoidal return value.
 whenJust' :: (Monad m, Monoid b) => Maybe a -> (a -> m b) -> m b
@@ -216,16 +208,14 @@ getStack = W.stack <$> curWorkspace
 
 -- | Set the stack on the current workspace.
 putStack :: XLike m => Maybe (W.Stack Window) -> m ()
-putStack mst = modifyWindowSet' . modify'' $ \_ -> mst
+putStack mst = modifyWindowSet' . modify'' $ const mst
 
 -- | Get the focused window if there is one.
 peek :: XLike m => m (Maybe Window)
 peek = withWindowSet' (return . W.peek)
 
 -- | Get the current screen.
-curScreen
-  :: XLike m
-  => m (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail)
+curScreen :: XLike m => m WindowScreen
 curScreen = withWindowSet' (return . W.current)
 
 -- | Get the current workspace.
@@ -263,8 +253,8 @@ greedyView = viewWith W.greedyView
 invisiView :: XLike m => WorkspaceId -> m Any
 invisiView = viewWith $ \tag ws ->
   if   tag `elem` (W.tag . W.workspace <$> W.current ws : W.visible ws)
-  then W.view tag ws
-  else ws
+  then ws
+  else W.view tag ws
 
 -- | A refresh-tracking version of @W.Shift@.
 shift :: XLike m => WorkspaceId -> m Any
@@ -273,6 +263,16 @@ shift tag = withFocii $ \ctag fw ->
     modifyWindowSet' (W.shiftWin tag fw)
     mfw' <- peek
     return (Any $ Just fw /= mfw')
+
+-- | A refresh tracking version of @W.shiftWin@.
+shiftWin :: XLike m => WorkspaceId -> Window -> m Any
+shiftWin tag w = do
+  mtag <- gets $ W.findTag w . windowset
+  whenJust' mtag $ \wtag ->
+    when' (tag /= wtag) $ do
+      modifyWindowSet' $ W.shiftWin tag w
+      ntag <- gets $ W.findTag w . windowset
+      return (Any $ mtag /= ntag)
 
 -- | Internal. Refresh-tracking logic of focus operations.
 focusWith :: XLike m => (WindowSet -> WindowSet) -> m Any
@@ -291,4 +291,3 @@ focusNth :: XLike m => Int -> m Any
 focusNth i = focusWith (W.modify' (XMonad.Actions.FocusNth.focusNth' i))
 
 -- }}}
-

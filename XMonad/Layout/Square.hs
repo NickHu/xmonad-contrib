@@ -1,8 +1,9 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, TupleSections #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Square
+-- Description :  A layout that splits the screen into a square area and the rest of the screen.
 -- Copyright   :  (c) David Roundy <droundy@darcs.net>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -28,7 +29,7 @@ import XMonad
 import XMonad.StackSet ( integrate )
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@ file:
+-- You can use this module with the following in your @xmonad.hs@ file:
 --
 -- >   import XMonad.Layout.Square
 --
@@ -40,13 +41,13 @@ import XMonad.StackSet ( integrate )
 -- >         [(tabbed,3),(tabbed,30),(tabbed,1),(tabbed,1)]
 
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 data Square a = Square deriving ( Read, Show )
 
 instance LayoutClass Square a where
     pureLayout Square r s = arrange (integrate s)
-        where arrange ws@(_:_) = map (\w->(w,rest)) (init ws) ++ [(last ws,sq)]
+        where arrange ws@(_:_) = map (, rest) (init ws) ++ [(last ws,sq)]
               arrange [] = [] -- actually, this is an impossible case
               (rest, sq) = splitSquare r
 

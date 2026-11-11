@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Actions.TagWindows
+-- Description  : Functions for tagging windows and selecting them by tags.
 -- Copyright    : (c) Karsten Schoelzel <kuser@gmx.de>
 -- License      : BSD
 --
@@ -26,21 +27,19 @@ module XMonad.Actions.TagWindows (
                  TagPrompt,
                  ) where
 
-import Data.List (nub,sortBy)
-import Control.Monad
 import Control.Exception as E
 
-import XMonad.StackSet hiding (filter)
-
-import XMonad.Prompt
 import XMonad hiding (workspaces)
+import XMonad.Prelude
+import XMonad.Prompt
+import XMonad.StackSet hiding (filter)
 
 econst :: Monad m => a -> IOException -> m a
 econst = const . return
 
 -- $usage
 --
--- To use window tags, import this module into your @~\/.xmonad\/xmonad.hs@:
+-- To use window tags, import this module into your @xmonad.hs@:
 --
 -- > import XMonad.Actions.TagWindows
 -- > import XMonad.Prompt    -- to use tagPrompt
@@ -65,7 +64,7 @@ econst = const . return
 --       the tags \"a\" and \"b\" but not \"a b\".
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 -- | set multiple tags for a window at once (overriding any previous tags)
 setTags :: [String] -> Window -> X ()
@@ -84,8 +83,7 @@ getTags w = withDisplay $ \d ->
     io $ E.catch (internAtom d "_XMONAD_TAGS" False >>=
                 getTextProperty d w >>=
                 wcTextPropertyToTextList d)
-               (econst [[]])
-    >>= return . words . unwords
+               (econst [[]]) <&> (words . unwords)
 
 -- | check a window for the given tag
 hasTag :: String -> Window -> X Bool
@@ -95,7 +93,7 @@ hasTag s w = (s `elem`) <$> getTags w
 addTag :: String -> Window -> X ()
 addTag s w = do
     tags <- getTags w
-    if (s `notElem` tags) then setTags (s:tags) w else return ()
+    when (s `notElem` tags) $ setTags (s:tags) w
 
 -- | remove a tag from a window, if it exists
 delTag :: String -> Window -> X ()
@@ -136,11 +134,6 @@ focusTagged' :: (WindowSet -> [Window]) -> String -> X ()
 focusTagged' wl t = gets windowset >>= findM (hasTag t) . wl >>=
     maybe (return ()) (windows . focusWindow)
 
-findM :: (Monad m) => (a -> m Bool) -> [a] -> m (Maybe a)
-findM _ []      = return Nothing
-findM p (x:xs)  = do b <- p x
-                     if b then return (Just x) else findM p xs
-
 -- | apply a pure function to windows with a tag
 withTaggedP, withTaggedGlobalP :: String -> (Window -> WindowSet -> WindowSet) -> X ()
 withTaggedP       t f = withTagged'       t (winMap f)
@@ -158,7 +151,7 @@ withTagged' t m = gets windowset >>= filterM (hasTag t) . index >>= m
 
 withTaggedGlobal' :: String -> ([Window] -> X ()) -> X ()
 withTaggedGlobal' t m = gets windowset >>=
-    filterM (hasTag t) . concat . map (integrate' . stack) . workspaces >>= m
+    filterM (hasTag t) . concatMap (integrate' . stack) . workspaces >>= m
 
 withFocusedP :: (Window -> WindowSet -> WindowSet) -> X ()
 withFocusedP f = withFocused $ windows . f
@@ -167,7 +160,7 @@ shiftHere :: (Ord a, Eq s, Eq i) => a -> StackSet i l a s sd -> StackSet i l a s
 shiftHere w s = shiftWin (currentTag s) w s
 
 shiftToScreen :: (Ord a, Eq s, Eq i) => s -> a -> StackSet i l a s sd -> StackSet i l a s sd
-shiftToScreen sid w s = case filter (\m -> sid /= screen m) ((current s):(visible s)) of
+shiftToScreen sid w s = case filter (\m -> sid /= screen m) (current s:visible s) of
                                 []      -> s
                                 (t:_)   -> shiftWin (tag . workspace $ t) w s
 
@@ -183,17 +176,16 @@ tagPrompt c f = do
   mkXPrompt TagPrompt c (mkComplFunFromList' c sc) f
 
 tagComplList :: X [String]
-tagComplList = gets (concat . map (integrate' . stack) . workspaces . windowset) >>=
-    mapM getTags >>=
-    return . nub . concat
+tagComplList = gets (concatMap (integrate' . stack) . workspaces . windowset)
+           >>= mapM getTags
+           <&> nub . concat
 
 
 tagDelPrompt :: XPConfig -> X ()
 tagDelPrompt c = do
   sc <- tagDelComplList
-  if (sc /= [])
-    then mkXPrompt TagPrompt c (mkComplFunFromList' c sc) (\s -> withFocused (delTag s))
-    else return ()
+  when (sc /= []) $
+    mkXPrompt TagPrompt c (mkComplFunFromList' c sc) (withFocused . delTag)
 
 tagDelComplList :: X [String]
 tagDelComplList = gets windowset >>= maybe (return []) getTags . peek

@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.WindowProperties
+-- Description :  EDSL for specifying window properties.
 -- Copyright   :  (c) Roman Cheplyaka
 -- License     :  BSD-style (see LICENSE)
 --
@@ -22,10 +23,10 @@ module XMonad.Util.WindowProperties (
     getProp32, getProp32s)
 where
 
-import Control.Monad
 import Foreign.C.Types (CLong)
 import XMonad
 import XMonad.Actions.TagWindows (hasTag)
+import XMonad.Prelude (filterM)
 import qualified XMonad.StackSet as W
 
 -- $edsl
@@ -45,14 +46,14 @@ data Property = Title String
               | Or  Property Property
               | Not Property
               | Const Bool
-              | Tagged String -- ^ Tagged via 'XMonad.Actions.TagWindows'
+              | Tagged String -- ^ Tagged via "XMonad.Actions.TagWindows"
               deriving (Read, Show)
 infixr 9 `And`
 infixr 8 `Or`
 
 -- | Does given window have this property?
 hasProperty :: Property -> Window -> X Bool
-hasProperty p w = runQuery (propertyToQuery p) w
+hasProperty p = runQuery (propertyToQuery p)
 
 -- | Does the focused window have this property?
 focusedHasProperty :: Property -> X Bool

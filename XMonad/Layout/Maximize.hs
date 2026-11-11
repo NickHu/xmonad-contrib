@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleContexts, FlexibleInstances, MultiParamTypeClasses #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Maximize
+-- Description :  Temporarily yank the focused window out of the layout to mostly fill the screen.
 -- Copyright   :  (c) 2007 James Webb
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -27,10 +28,10 @@ module XMonad.Layout.Maximize (
 import XMonad
 import qualified XMonad.StackSet as S
 import XMonad.Layout.LayoutModifier
-import Data.List ( partition )
+import XMonad.Prelude ( partition )
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.Maximize
 --
@@ -45,9 +46,9 @@ import Data.List ( partition )
 -- > myLayout = maximizeWithPadding 10 (Tall 1 (3/100) (1/2)) ||| Full ||| etc..)
 -- > main = xmonad def { layoutHook = myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 --
 -- In the key-bindings, do something like:
 --
@@ -56,7 +57,7 @@ import Data.List ( partition )
 --
 -- For detailed instruction on editing the key binding see:
 --
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 data Maximize a = Maximize Dimension (Maybe Window) deriving ( Read, Show )
 maximize :: LayoutClass l Window => l Window -> ModifiedLayout Maximize l Window
@@ -67,7 +68,7 @@ maximize = ModifiedLayout $ Maximize 25 Nothing
 maximizeWithPadding :: LayoutClass l Window => Dimension -> l Window -> ModifiedLayout Maximize l Window
 maximizeWithPadding padding = ModifiedLayout $ Maximize padding Nothing
 
-data MaximizeRestore = MaximizeRestore Window deriving ( Typeable, Eq )
+newtype MaximizeRestore = MaximizeRestore Window deriving ( Eq )
 instance Message MaximizeRestore
 maximizeRestore :: Window -> MaximizeRestore
 maximizeRestore = MaximizeRestore
@@ -91,7 +92,7 @@ instance LayoutModifier Maximize Window where
 
     pureMess (Maximize padding mw) m = case fromMessage m of
         Just (MaximizeRestore w) -> case mw of
-            Just w' -> if (w == w')
+            Just w' -> if w == w'
                         then Just $ Maximize padding Nothing   -- restore window
                         else Just $ Maximize padding $ Just w  -- maximize different window
             Nothing -> Just $ Maximize padding $ Just w        -- maximize window

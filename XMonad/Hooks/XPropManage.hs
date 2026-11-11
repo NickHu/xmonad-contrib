@@ -2,6 +2,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Hooks.XPropManage
+-- Description  : ManageHook matching on XProperties.
 -- Copyright    : (c) Karsten Schoelzel <kuser@gmx.de>
 -- License      : BSD
 --
@@ -19,15 +20,13 @@ module XMonad.Hooks.XPropManage (
                  ) where
 
 import Control.Exception as E
-import Data.Char (chr)
-import Data.Monoid (Endo(..))
-
 import Control.Monad.Trans (lift)
 
 import XMonad
+import XMonad.Prelude (Endo (..), chr)
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Hooks.XPropManage
 -- > import qualified XMonad.StackSet as W
@@ -58,7 +57,7 @@ import XMonad
 -- should work fine. Others might not work.
 --
 
-type XPropMatch = ([(Atom, [String] -> Bool)], (Window -> X (WindowSet -> WindowSet)))
+type XPropMatch = ([(Atom, [String] -> Bool)], Window -> X (WindowSet -> WindowSet))
 
 pmX :: (Window -> X ()) -> Window -> X (WindowSet -> WindowSet)
 pmX f w = f w >> return id
@@ -73,10 +72,10 @@ xPropManageHook tms = mconcat $ map propToHook tms
       mkQuery (a, tf)    = fmap tf (getQuery a)
       mkHook func        = ask >>= Query . lift . fmap Endo . func
 
-getProp :: Display -> Window -> Atom -> X ([String])
+getProp :: Display -> Window -> Atom -> X [String]
 getProp d w p = do
     prop <- io $ E.catch (getTextProperty d w p >>= wcTextPropertyToTextList d) (\(_ :: IOException) -> return [[]])
-    let filt q | q == wM_COMMAND = concat . map splitAtNull
+    let filt q | q == wM_COMMAND = concatMap splitAtNull
                | otherwise       = id
     return (filt p prop)
 
@@ -84,7 +83,7 @@ getQuery ::  Atom -> Query [String]
 getQuery p = ask >>= \w ->  Query . lift $ withDisplay $ \d -> getProp d w p
 
 splitAtNull :: String -> [String]
-splitAtNull s = case dropWhile (== (chr 0)) s of
+splitAtNull s = case dropWhile (== chr 0) s of
     "" -> []
     s' -> w : splitAtNull s''
-          where (w, s'') = break (== (chr 0)) s'
+          where (w, s'') = break (== chr 0) s'

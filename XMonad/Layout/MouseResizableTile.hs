@@ -1,7 +1,8 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleInstances, MultiParamTypeClasses, PatternGuards, TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, PatternGuards #-}
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.MouseResizableTile
+-- Description :  Like "XMonad.Layout.ResizableTile", but use the mouse to adjust the layout.
 -- Copyright   :  (c) Jan Vornberger 2009
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -19,7 +20,7 @@ module XMonad.Layout.MouseResizableTile (
                                     -- $usage
                                     mouseResizableTile,
                                     mouseResizableTileMirrored,
-                                    MRTMessage (ShrinkSlave, ExpandSlave),
+                                    MRTMessage (ShrinkSlave, ExpandSlave, SetMasterFraction, SetLeftSlaveFraction, SetRightSlaveFraction),
 
                                     -- * Parameters
                                     -- $mrtParameters
@@ -34,12 +35,13 @@ module XMonad.Layout.MouseResizableTile (
                                    ) where
 
 import XMonad hiding (tile, splitVertically, splitHorizontallyBy)
+import XMonad.Prelude
 import qualified XMonad.StackSet as W
 import XMonad.Util.XUtils
 import Graphics.X11 as X
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.MouseResizableTile
 --
@@ -51,9 +53,9 @@ import Graphics.X11 as X
 -- > main = xmonad def { layoutHook = myLayout }
 --
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 --
 -- You may also want to add the following key bindings:
 --
@@ -62,7 +64,7 @@ import Graphics.X11 as X
 --
 -- For detailed instruction on editing the key binding see:
 --
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 -- $mrtParameters
 -- The following functions are also labels for updating the @data@ (whose
@@ -80,7 +82,6 @@ data MRTMessage = SetMasterFraction Rational
                     | SetRightSlaveFraction Int Rational
                     | ShrinkSlave
                     | ExpandSlave
-                    deriving Typeable
 instance Message MRTMessage
 
 data DraggerInfo = MasterDragger Position Rational
@@ -146,14 +147,14 @@ instance LayoutClass MouseResizableTile Window where
                                             (rightFracs st ++ repeat (slaveFrac st)) sr' num drg
             rects' = map (mirrorAdjust id mirrorRect . sanitizeRectangle sr') rects
         mapM_ deleteDragger $ draggers st
-        (draggerWrs, newDraggers) <- unzip <$> mapM
+        (draggerWrs, newDraggers) <- mapAndUnzipM
                                         (createDragger sr . adjustForMirror (isMirrored st))
                                         preparedDraggers
         return (draggerWrs ++ zip wins rects', Just $ st { draggers = newDraggers,
                                                               focusPos = length l,
                                                               numWindows = length wins })
         where
-            mirrorAdjust a b = if (isMirrored st)
+            mirrorAdjust a b = if isMirrored st
                                 then b
                                 else a
 
@@ -207,7 +208,7 @@ adjustForMirror False dragger = dragger
 adjustForMirror True (draggerRect, draggerCursor, draggerInfo) =
         (mirrorRect draggerRect, draggerCursor', draggerInfo)
     where
-        draggerCursor' = if (draggerCursor == xC_sb_h_double_arrow)
+        draggerCursor' = if draggerCursor == xC_sb_h_double_arrow
                             then xC_sb_v_double_arrow
                             else xC_sb_h_double_arrow
 
@@ -243,8 +244,8 @@ replaceAtPos d (x:xs) pos x' = x : replaceAtPos d xs (pos -1 ) x'
 
 sanitizeRectangle :: Rectangle -> Rectangle -> Rectangle
 sanitizeRectangle (Rectangle sx sy swh sht) (Rectangle x y wh ht) =
-    (Rectangle (within 0 (sx + fromIntegral swh) x) (within 0 (sy + fromIntegral sht) y)
-                (within 1 swh wh) (within 1 sht ht))
+    Rectangle (within 0 (sx + fromIntegral swh) x) (within 0 (sy + fromIntegral sht) y)
+                (within 1 swh wh) (within 1 sht ht)
 
 within :: (Ord a) => a -> a -> a -> a
 within low high a = max low $ min high a

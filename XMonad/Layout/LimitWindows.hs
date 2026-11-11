@@ -1,10 +1,11 @@
-{-# LANGUAGE CPP, FlexibleInstances, MultiParamTypeClasses, DeriveDataTypeable, PatternGuards #-}
+{-# LANGUAGE CPP, FlexibleInstances, MultiParamTypeClasses, PatternGuards #-}
 #ifdef TESTING
 {-# OPTIONS_GHC -Wno-duplicate-exports #-}
 #endif
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.LimitWindows
+-- Description :  A layout modifier that limits the number of windows that can be shown.
 -- Copyright   :  (c) 2009 Adam Vogt
 --                (c) 2009 Max Rabkin -- wrote limitSelect
 -- License     :  BSD-style (see xmonad/LICENSE)
@@ -37,14 +38,13 @@ module XMonad.Layout.LimitWindows (
     LimitWindows, Selection,
     ) where
 
-import XMonad.Layout.LayoutModifier
 import XMonad
+import XMonad.Layout.LayoutModifier
+import XMonad.Prelude (fromJust, guard, (<=<))
 import qualified XMonad.StackSet as W
-import Control.Monad((<=<),guard)
-import Data.Maybe(fromJust)
 
 -- $usage
--- To use this module, add the following import to @~\/.xmonad\/xmonad.hs@:
+-- To use this module, add the following import to @xmonad.hs@:
 --
 -- > import XMonad.Layout.LimitWindows
 --
@@ -56,7 +56,7 @@ import Data.Maybe(fromJust)
 -- actions.
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 --
 -- See also 'XMonad.Layout.BoringWindows.boringAuto' for keybindings that skip
 -- the hidden windows.
@@ -75,7 +75,7 @@ limitWindows :: Int -> l a -> ModifiedLayout LimitWindows l a
 limitWindows n = ModifiedLayout (LimitWindows FirstN n)
 
 -- | Only display @n@ windows around the focused window. This makes sense with
--- layouts that arrange windows linearily, like 'XMonad.Layout.Layout.Accordion'.
+-- layouts that arrange windows linearily, like "XMonad.Layout.Accordion".
 limitSlice :: Int -> l a -> ModifiedLayout LimitWindows l a
 limitSlice n = ModifiedLayout (LimitWindows Slice n)
 
@@ -89,7 +89,7 @@ data LimitWindows a = LimitWindows SliceStyle Int deriving (Read,Show)
 
 data SliceStyle = FirstN | Slice deriving (Read,Show)
 
-data LimitChange = LimitChange { unLC :: (Int -> Int) } deriving (Typeable)
+newtype LimitChange = LimitChange { unLC :: Int -> Int }
 
 instance Message LimitChange
 
@@ -99,8 +99,8 @@ instance LayoutModifier LimitWindows a where
       where pos x   = guard (x>=1)     >> return x
             app f x = guard (f x /= x) >>  return (f x)
 
-     modifyLayout (LimitWindows style n) ws r =
-        runLayout ws { W.stack = f n <$> W.stack ws } r
+     modifyLayout (LimitWindows style n) ws =
+        runLayout ws { W.stack = f n <$> W.stack ws }
       where f = case style of
                     FirstN -> firstN
                     Slice -> slice
@@ -123,8 +123,8 @@ data Selection a = Sel { nMaster :: Int, start :: Int, nRest :: Int }
     deriving (Read, Show, Eq)
 
 instance LayoutModifier Selection a where
-    modifyLayout s w r =
-        runLayout (w { W.stack = updateAndSelect s <$> W.stack w }) r
+    modifyLayout s w =
+        runLayout (w { W.stack = updateAndSelect s <$> W.stack w })
 
     pureModifier sel _ stk wins = (wins, update sel <$> stk)
 
@@ -143,7 +143,7 @@ select s stk
                     (take (nRest s) . drop (start s - lups - 1) $ downs) }
     | otherwise
         = stk { W.up=reverse (take (nMaster s) ups ++ drop (start s) ups),
-                W.down=take ((nRest s) - (lups - start s) - 1) downs }
+                W.down=take (nRest s - (lups - start s) - 1) downs }
     where
         downs = W.down stk
         ups = reverse $ W.up stk
@@ -152,11 +152,11 @@ select s stk
 updateStart :: Selection l -> W.Stack a -> Int
 updateStart s stk
     | lups < nMaster s  -- the focussed window is in the master pane
-        = start s `min` (lups + ldown - (nRest s) + 1) `max` nMaster s
+        = start s `min` (lups + ldown - nRest s + 1) `max` nMaster s
     | otherwise
         = start s `min` lups
-                  `max` (lups - (nRest s) + 1)
-                  `min` (lups + ldown - (nRest s) + 1)
+                  `max` (lups - nRest s + 1)
+                  `min` (lups + ldown - nRest s + 1)
                   `max` nMaster s
     where
         lups = length $ W.up stk

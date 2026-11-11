@@ -2,6 +2,7 @@
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.ButtonDecoration
+-- Description :  Decoration that includes buttons, executing actions when clicked on.
 -- Copyright   :  (c) Jan Vornberger 2009
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -32,7 +33,7 @@ import XMonad.Layout.DecorationAddons
 
 -- $usage
 -- You can use this module with the following in your
--- @~\/.xmonad\/xmonad.hs@:
+-- @xmonad.hs@:
 --
 -- > import XMonad.Layout.DecorationAddons
 -- > import XMonad.Layout.ButtonDecoration
@@ -48,9 +49,9 @@ buttonDeco :: (Eq a, Shrinker s) => s -> Theme
            -> l a -> ModifiedLayout (Decoration ButtonDecoration s) l a
 buttonDeco s c = decoration s c $ NFD True
 
-data ButtonDecoration a = NFD Bool deriving (Show, Read)
+newtype ButtonDecoration a = NFD Bool deriving (Show, Read)
 
 instance Eq a => DecorationStyle ButtonDecoration a where
     describeDeco _ = "ButtonDeco"
-    decorationCatchClicksHook _ mainw dFL dFR = titleBarButtonHandler mainw dFL dFR
+    decorationCatchClicksHook _ = titleBarButtonHandler
     decorationAfterDraggingHook _ (mainw, _) decoWin = focus mainw >> handleScreenCrossing mainw decoWin >> return ()

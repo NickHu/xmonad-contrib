@@ -4,6 +4,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.SortedLayout
+-- Description :  A layout modifier that sorts a given layout by a list of properties.
 -- Copyright   :  (c) 2016 Kurt Dietrich
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -24,17 +25,15 @@ module XMonad.Layout.SortedLayout
   , Property(..)
   ) where
 
-import           Control.Monad
-import           Data.List
-
 import           XMonad
+import           XMonad.Prelude hiding (Const)
 import           XMonad.Layout.LayoutModifier
 import           XMonad.StackSet              as W
 import           XMonad.Util.WindowProperties
 
 -- $usage
 -- You can use this module with the following in your
--- @~\/.xmonad\/xmonad.hs@:
+-- @xmonad.hs@:
 --
 -- > import XMonad.Layout.SortedLayout
 --
@@ -43,9 +42,9 @@ import           XMonad.Util.WindowProperties
 -- > myLayout = sorted [ClassName "Firefox", ClassName "URxvt"] Grid
 -- > main = xmonad def { layoutHook = myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 
 -- | Modify a layout using a list of properties to sort its windows.
@@ -65,7 +64,7 @@ instance Eq WindowDescriptor where
 instance Ord WindowDescriptor where
   compare a b = compare (wdSeqn a) (wdSeqn b)
 
-data SortedLayout a = SortedLayout [Property] deriving (Show, Read)
+newtype SortedLayout a = SortedLayout [Property] deriving (Show, Read)
 
 instance LayoutModifier SortedLayout Window where
     modifyLayout (SortedLayout props) = sortLayout props

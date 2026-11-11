@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveDataTypeable, GeneralizedNewtypeDeriving, MultiParamTypeClasses, TypeSynonymInstances #-}
+{-# LANGUAGE MultiParamTypeClasses, TypeSynonymInstances #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.MosaicAlt
+-- Description :  An alternative version of "XMonad.Layout.Mosaic".
 -- Copyright   :  (c) 2007 James Webb
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -33,11 +34,11 @@ module XMonad.Layout.MosaicAlt (
 import XMonad
 import qualified XMonad.StackSet as W
 import qualified Data.Map as M
-import Data.List ( sortBy )
+import XMonad.Prelude ( sortBy )
 import Data.Ratio
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.MosaicAlt
 -- > import qualified Data.Map as M
@@ -47,9 +48,9 @@ import Data.Ratio
 -- > myLayout = MosaicAlt M.empty ||| Full ||| etc..
 -- > main = xmonad def { layoutHook = myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 --
 -- In the key-bindings, do something like:
 --
@@ -62,7 +63,7 @@ import Data.Ratio
 --
 -- For detailed instruction on editing the key binding see:
 --
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 data HandleWindowAlt =
     ShrinkWindowAlt Window
@@ -70,7 +71,7 @@ data HandleWindowAlt =
     | TallWindowAlt Window
     | WideWindowAlt Window
     | ResetAlt
-    deriving ( Typeable, Eq )
+    deriving ( Eq )
 instance Message HandleWindowAlt
 shrinkWindowAlt, expandWindowAlt :: Window -> HandleWindowAlt
 tallWindowAlt, wideWindowAlt :: Window -> HandleWindowAlt
@@ -83,7 +84,7 @@ resetAlt = ResetAlt
 
 data Param = Param { area, aspect :: Rational } deriving ( Show, Read )
 type Params = M.Map Window Param
-data MosaicAlt a = MosaicAlt Params deriving ( Show, Read )
+newtype MosaicAlt a = MosaicAlt Params deriving ( Show, Read )
 
 instance LayoutClass MosaicAlt Window where
     description _ = "MosaicAlt"
@@ -91,7 +92,7 @@ instance LayoutClass MosaicAlt Window where
             return (arrange rect stack params', Just $ MosaicAlt params')
         where
             params' = ins (W.up stack) $ ins (W.down stack) $ ins [W.focus stack] params
-            ins wins as = foldl M.union as $ map (`M.singleton` (Param 1 1.5)) wins
+            ins wins as = foldl M.union as $ map (`M.singleton` Param 1 1.5) wins
 
     handleMessage (MosaicAlt params) msg = return $ case fromMessage msg of
         Just (ShrinkWindowAlt w) -> Just $ MosaicAlt $ alter params w (4 % 5) 1
@@ -129,7 +130,7 @@ makeTree wins params = case wins of
 
 -- Split a list of windows in half by area.
 areaSplit :: Params -> [Window] -> (([Window], Rational), ([Window], Rational))
-areaSplit params wins = gather [] 0 [] 0 wins
+areaSplit params = gather [] 0 [] 0
     where
         gather a aa b ba (r : rs) =
             if aa <= ba
@@ -161,8 +162,8 @@ aspectBadness :: Rectangle -> Window -> Params -> Double
 aspectBadness rect win params =
         (if a < 1 then tall else wide) * sqrt(w * h)
     where
-        tall = if w < 700 then ((1 / a) * (700 / w)) else 1 / a
-        wide = if w < 700 then a else (a * w / 700)
+        tall = if w < 700 then (1 / a) * (700 / w) else 1 / a
+        wide = if w < 700 then a else a * w / 700
         a = (w / h) / fromRational (maybe 1.5 aspect $ M.lookup win params)
         w = fromIntegral $ rect_width rect
         h = fromIntegral $ rect_height rect

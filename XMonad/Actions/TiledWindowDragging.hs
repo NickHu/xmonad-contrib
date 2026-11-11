@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.TiledWindowDragging
+-- Description :  Change the position of windows by dragging them.
 -- Copyright   :  (c) 2020 Leon Kowarschick
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -19,20 +20,20 @@ module XMonad.Actions.TiledWindowDragging
     dragWindow
   )
 where
+
 import           XMonad
+import           XMonad.Prelude
 import qualified XMonad.StackSet               as W
 import           XMonad.Layout.DraggingVisualizer
-import           Control.Monad
-
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Actions.TiledWindowDragging
 -- > import XMonad.Layout.DraggingVisualizer
 --
 -- then edit your 'layoutHook' by adding the draggingVisualizer to your layout:
--- 
+--
 -- > myLayout = draggingVisualizer $ layoutHook def
 --
 -- Then add a mouse binding for 'dragWindow':
@@ -47,17 +48,18 @@ import           Control.Monad
 -- | Create a mouse binding for this to be able to drag your windows around.
 -- You need "XMonad.Layout.DraggingVisualizer" for this to look good.
 dragWindow :: Window -> X ()
-dragWindow window = whenX (isClient window) $ do
+dragWindow window = whenX (isClient window) $ withDisplay $ \dpy ->
+  withWindowAttributes dpy window $ \wa -> do
     focus window
-    (offsetX, offsetY)                <- getPointerOffset window
-    (winX, winY, winWidth, winHeight) <- getWindowPlacement window
+    (offsetX, offsetY)                    <- getPointerOffset window
+    let (winX, winY, winWidth, winHeight)  = getWindowPlacement wa
 
     mouseDrag
         (\posX posY ->
-          let rect = Rectangle (fInt (fInt winX + (posX - fInt offsetX)))
-                               (fInt (fInt winY + (posY - fInt offsetY)))
-                               (fInt winWidth)
-                               (fInt winHeight)
+          let rect = Rectangle (fi (fi winX + (posX - fi offsetX)))
+                               (fi (fi winY + (posY - fi offsetY)))
+                               (fi winWidth)
+                               (fi winHeight)
           in  sendMessage $ DraggingWindow window rect
         )
         (sendMessage DraggingStopped >> performWindowSwitching window)
@@ -67,14 +69,11 @@ dragWindow window = whenX (isClient window) $ do
 getPointerOffset :: Window -> X (Int, Int)
 getPointerOffset win = do
     (_, _, _, oX, oY, _, _, _) <- withDisplay (\d -> io $ queryPointer d win)
-    return (fInt oX, fInt oY)
+    return (fi oX, fi oY)
 
 -- | return a tuple of windowX, windowY, windowWidth, windowHeight
-getWindowPlacement :: Window -> X (Int, Int, Int, Int)
-getWindowPlacement window = do
-    wa <- withDisplay (\d -> io $ getWindowAttributes d window)
-    return (fInt $ wa_x wa, fInt $ wa_y wa, fInt $ wa_width wa, fInt $ wa_height wa)
-
+getWindowPlacement :: WindowAttributes -> (Int, Int, Int, Int)
+getWindowPlacement wa = (fi $ wa_x wa, fi $ wa_y wa, fi $ wa_width wa, fi $ wa_height wa)
 
 performWindowSwitching :: Window -> X ()
 performWindowSwitching win = do
@@ -84,18 +83,10 @@ performWindowSwitching win = do
     let allWindows = W.index ws
     when ((win `elem` allWindows) && (selWin `elem` allWindows)) $ do
         let allWindowsSwitched = map (switchEntries win selWin) allWindows
-        let (ls, t : rs)       = break (== win) allWindowsSwitched
+        (ls, t : rs)          <- pure $ break (== win) allWindowsSwitched
         let newStack           = W.Stack t (reverse ls) rs
         windows $ W.modify' $ const newStack
    where
     switchEntries a b x | x == a    = b
                         | x == b    = a
                         | otherwise = x
-
-
-
--- | shorthand for fromIntegral
-fInt :: Integral a => Integral b => a -> b
-fInt = fromIntegral
-
-

@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE CPP                #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE MultiWayIf #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.ShowText
+-- Description :  Display text on the screen.
 -- Copyright   :  (c) Mario Pastorelli (2012)
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -23,11 +24,10 @@ module XMonad.Actions.ShowText
     , ShowTextConfig(..)
     ) where
 
-import Control.Monad (when)
 import Data.Map (Map,empty,insert,lookup)
-import Data.Monoid (All)
 import Prelude hiding (lookup)
 import XMonad
+import XMonad.Prelude (All, fi, listToMaybe)
 import XMonad.StackSet (current,screen)
 import XMonad.Util.Font (Align(AlignCenter)
                        , initXMF
@@ -37,19 +37,18 @@ import XMonad.Util.Font (Align(AlignCenter)
 import XMonad.Util.Timer (startTimer)
 import XMonad.Util.XUtils (createNewWindow
                          , deleteWindow
-                         , fi
                          , showWindow
                          , paintAndWrite)
 import qualified XMonad.Util.ExtensibleState as ES
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Actions.ShowText
 --
 -- Then add the event hook handler:
 --
--- > xmonad { handleEventHook = myHandleEventHooks <+> handleTimerEvent }
+-- > xmonad { handleEventHook = myHandleEventHooks <> handleTimerEvent }
 --
 -- You can then use flashText in your keybindings:
 --
@@ -58,7 +57,7 @@ import qualified XMonad.Util.ExtensibleState as ES
 
 -- | ShowText contains the map with timers as keys and created windows as values
 newtype ShowText = ShowText (Map Atom Window)
-    deriving (Read,Show,Typeable)
+    deriving (Read,Show)
 
 instance ExtensionClass ShowText where
     initialValue = ShowText empty
@@ -89,8 +88,9 @@ handleTimerEvent :: Event -> X All
 handleTimerEvent (ClientMessageEvent _ _ _ dis _ mtyp d) = do
     (ShowText m) <- ES.get :: X ShowText
     a <- io $ internAtom dis "XMONAD_TIMER" False
-    when (mtyp == a && length d >= 1)
-         (whenJust (lookup (fromIntegral $ d !! 0) m) deleteWindow)
+    if | mtyp == a, Just dh <- listToMaybe d ->
+           whenJust (lookup (fromIntegral dh) m) deleteWindow
+       | otherwise -> pure ()
     mempty
 handleTimerEvent _ = mempty
 

@@ -1,9 +1,11 @@
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE DoAndIfThenElse #-}
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, DeriveDataTypeable #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.BinarySpacePartition
+-- Description :  New windows split the focused window in half; based off of BSPWM.
 -- Copyright   :  (c) 2013 Ben Weitzman    <benweitzman@gmail.com>
 --                    2015 Anton Pirogov   <anton.pirogov@gmail.com>
 --                    2019 Mateusz Karbowy <obszczymucha@gmail.com
@@ -24,7 +26,7 @@ module XMonad.Layout.BinarySpacePartition (
   , BinarySpacePartition
   , Rotate(..)
   , Swap(..)
-  , ResizeDirectional(..)
+  , ResizeDirectional(.., ExpandTowards, ShrinkFrom, MoveSplit)
   , TreeRotate(..)
   , TreeBalance(..)
   , FocusParent(..)
@@ -34,7 +36,9 @@ module XMonad.Layout.BinarySpacePartition (
   ) where
 
 import XMonad
+import XMonad.Prelude hiding (insert)
 import qualified XMonad.StackSet as W
+import XMonad.Hooks.ManageHelpers (isMinimized)
 import XMonad.Util.Stack hiding (Zipper)
 import XMonad.Util.Types
 
@@ -45,13 +49,10 @@ import XMonad.Util.XUtils
 
 import qualified Data.Map as M
 import qualified Data.Set as S
-import Data.List ((\\), elemIndex, foldl')
-import Data.Maybe (fromMaybe, isNothing, isJust, mapMaybe, catMaybes)
-import Control.Monad
 import Data.Ratio ((%))
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.BinarySpacePartition
 --
@@ -94,10 +95,14 @@ import Data.Ratio ((%))
 -- > , ("M-M1-C-<Right>", sendMessage $ ExpandTowards R)
 -- > , ("M-M1-C-<Up>",    sendMessage $ ShrinkFrom D)
 -- > , ("M-M1-C-<Down>",  sendMessage $ ExpandTowards D)
--- > , ("M-s",            sendMessage $ BSP.Swap)
+-- > , ("M-s",            sendMessage $ Swap)
 -- > , ("M-M1-s",         sendMessage $ Rotate)
 -- > , ("M-S-C-j",        sendMessage $ SplitShift Prev)
 -- > , ("M-S-C-k",        sendMessage $ SplitShift Next)
+--
+-- Note that @ExpandTowards x@, @ShrinkFrom x@, and @MoveSplit x@ are
+-- the same as respectively @ExpandTowardsBy x 0.05@, @ShrinkFromBy x 0.05@
+-- and @MoveSplitBy x 0.05@.
 --
 -- If you have many windows open and the layout begins to look too hard to manage, you can 'Balance'
 -- the layout, so that the current splittings are discarded and windows are tiled freshly in a way that
@@ -108,38 +113,53 @@ import Data.Ratio ((%))
 -- > , ((myModMask .|. shiftMask, xK_a),     sendMessage Equalize)
 --
 
--- |Message for rotating the binary tree around the parent node of the window to the left or right
-data TreeRotate = RotateL | RotateR deriving Typeable
+-- | Message for rotating the binary tree around the parent node of the window to the left or right
+data TreeRotate = RotateL | RotateR
 instance Message TreeRotate
 
--- |Message to balance the tree in some way (Balance retiles the windows, Equalize changes ratios)
-data TreeBalance = Balance | Equalize deriving Typeable
+-- | Message to balance the tree in some way (Balance retiles the windows, Equalize changes ratios)
+data TreeBalance = Balance | Equalize
 instance Message TreeBalance
 
--- |Message for resizing one of the cells in the BSP
-data ResizeDirectional = ExpandTowards Direction2D | ShrinkFrom Direction2D | MoveSplit Direction2D deriving Typeable
+-- | Message for resizing one of the cells in the BSP
+data ResizeDirectional =
+        ExpandTowardsBy Direction2D Rational
+      | ShrinkFromBy Direction2D Rational
+      | MoveSplitBy Direction2D Rational
 instance Message ResizeDirectional
 
--- |Message for rotating a split (horizontal/vertical) in the BSP
-data Rotate = Rotate deriving Typeable
+-- | @ExpandTowards x@ is now the equivalent of @ExpandTowardsBy x 0.05@
+pattern ExpandTowards :: Direction2D -> ResizeDirectional
+pattern ExpandTowards d = ExpandTowardsBy d 0.05
+
+-- | @ShrinkFrom x@ is now the equivalent of @ShrinkFromBy x 0.05@
+pattern ShrinkFrom :: Direction2D -> ResizeDirectional
+pattern ShrinkFrom d = ShrinkFromBy d 0.05
+
+-- | @MoveSplit x@ is now the equivalent of @MoveSplitBy x 0.05@
+pattern MoveSplit :: Direction2D -> ResizeDirectional
+pattern MoveSplit d = MoveSplitBy d 0.05
+
+-- | Message for rotating a split (horizontal/vertical) in the BSP
+data Rotate = Rotate
 instance Message Rotate
 
--- |Message for swapping the left child of a split with the right child of split
-data Swap = Swap deriving Typeable
+-- | Message for swapping the left child of a split with the right child of split
+data Swap = Swap
 instance Message Swap
 
--- |Message to cyclically select the parent node instead of the leaf
-data FocusParent = FocusParent deriving Typeable
+-- | Message to cyclically select the parent node instead of the leaf
+data FocusParent = FocusParent
 instance Message FocusParent
 
--- |Message to move nodes inside the tree
-data SelectMoveNode = SelectNode | MoveNode deriving Typeable
+-- | Message to move nodes inside the tree
+data SelectMoveNode = SelectNode | MoveNode
 instance Message SelectMoveNode
 
 data Axis = Horizontal | Vertical deriving (Show, Read, Eq)
 
--- |Message for shifting window by splitting its neighbour
-data SplitShiftDirectional = SplitShift Direction1D deriving Typeable
+-- | Message for shifting window by splitting its neighbour
+newtype SplitShiftDirectional = SplitShift Direction1D
 instance Message SplitShiftDirectional
 
 oppositeDirection :: Direction2D -> Direction2D
@@ -177,10 +197,6 @@ oppositeSplit (Split d r) = Split (oppositeAxis d) r
 
 increaseRatio :: Split -> Rational -> Split
 increaseRatio (Split d r) delta = Split d (min 0.9 (max 0.1 (r + delta)))
-
-resizeDiff :: Rational
-resizeDiff = 0.05
-
 
 data Tree a = Leaf Int | Node { value :: a
                           , left :: Tree a
@@ -239,9 +255,7 @@ goSibling z@(_, LeftCrumb _ _:_) = Just z >>= goUp >>= goRight
 goSibling z@(_, RightCrumb _ _:_) = Just z >>= goUp >>= goLeft
 
 top :: Zipper a -> Zipper a
-top z = case goUp z of
-          Nothing -> z
-          Just z' -> top z'
+top z = maybe z top (goUp z)
 
 toTree :: Zipper a -> Tree a
 toTree = fst . top
@@ -269,10 +283,10 @@ removeCurrent :: Zipper a -> Maybe (Zipper a)
 removeCurrent (Leaf _, LeftCrumb _ r:cs) = Just (r, cs)
 removeCurrent (Leaf _, RightCrumb _ l:cs) = Just (l, cs)
 removeCurrent (Leaf _, []) = Nothing
-removeCurrent (Node _ (Leaf _) r@(Node _ _ _), cs) = Just (r, cs)
-removeCurrent (Node _ l@(Node _ _ _) (Leaf _), cs) = Just (l, cs)
+removeCurrent (Node _ (Leaf _) r@Node{}, cs) = Just (r, cs)
+removeCurrent (Node _ l@Node{} (Leaf _), cs) = Just (l, cs)
 removeCurrent (Node _ (Leaf _) (Leaf _), cs) = Just (Leaf 0, cs)
-removeCurrent z@(Node _ _ _, _) = goLeft z >>= removeCurrent
+removeCurrent z@(Node{}, _) = goLeft z >>= removeCurrent
 
 rotateCurrent :: Zipper Split -> Maybe (Zipper Split)
 rotateCurrent l@(_, []) = Just l
@@ -283,104 +297,108 @@ swapCurrent l@(_, []) = Just l
 swapCurrent (n, c:cs) = Just (n, swapCrumb c:cs)
 
 insertLeftLeaf :: Tree Split -> Zipper Split -> Maybe (Zipper Split)
-insertLeftLeaf (Leaf n) ((Node x l r), crumb:cs) = Just (Node (Split (oppositeAxis . axis . parentVal $ crumb) 0.5) (Leaf n) (Node x l r), crumb:cs)
+insertLeftLeaf (Leaf n) (Node x l r, crumb:cs) = Just (Node (Split (oppositeAxis . axis . parentVal $ crumb) 0.5) (Leaf n) (Node x l r), crumb:cs)
 insertLeftLeaf (Leaf n) (Leaf x, crumb:cs) = Just (Node (Split (oppositeAxis . axis . parentVal $ crumb) 0.5) (Leaf n) (Leaf x), crumb:cs)
-insertLeftLeaf (Node _ _ _) z = Just z
+insertLeftLeaf Node{} z = Just z
+insertLeftLeaf _ _ = Nothing
 
 insertRightLeaf :: Tree Split -> Zipper Split -> Maybe (Zipper Split)
-insertRightLeaf (Leaf n) ((Node x l r), crumb:cs) = Just (Node (Split (oppositeAxis . axis . parentVal $ crumb) 0.5) (Node x l r) (Leaf n), crumb:cs)
+insertRightLeaf (Leaf n) (Node x l r, crumb:cs) = Just (Node (Split (oppositeAxis . axis . parentVal $ crumb) 0.5) (Node x l r) (Leaf n), crumb:cs)
 insertRightLeaf (Leaf n) (Leaf x, crumb:cs) = Just (Node (Split (oppositeAxis . axis . parentVal $ crumb) 0.5) (Leaf x) (Leaf n), crumb:cs)
-insertRightLeaf (Node _ _ _) z = Just z
+insertRightLeaf Node{} z = Just z
+insertRightLeaf _ _ = Nothing
 
 findRightLeaf :: Zipper Split -> Maybe (Zipper Split)
-findRightLeaf n@(Node _ _ _, _) = goRight n >>= findRightLeaf
+findRightLeaf n@(Node{}, _) = goRight n >>= findRightLeaf
 findRightLeaf l@(Leaf _, _) = Just l
 
 findLeftLeaf :: Zipper Split -> Maybe (Zipper Split)
-findLeftLeaf n@(Node _ _ _, _) = goLeft n
+findLeftLeaf n@(Node{}, _) = goLeft n
 findLeftLeaf l@(Leaf _, _) = Just l
 
 findTheClosestLeftmostLeaf :: Zipper Split -> Maybe (Zipper Split)
 findTheClosestLeftmostLeaf s@(_, (RightCrumb _ _):_) = goUp s >>= goLeft >>= findRightLeaf
 findTheClosestLeftmostLeaf s@(_, (LeftCrumb _ _):_) = goUp s >>= findTheClosestLeftmostLeaf
+findTheClosestLeftmostLeaf _ = Nothing
 
 findTheClosestRightmostLeaf :: Zipper Split -> Maybe (Zipper Split)
 findTheClosestRightmostLeaf s@(_, (RightCrumb _ _):_) = goUp s >>= findTheClosestRightmostLeaf
 findTheClosestRightmostLeaf s@(_, (LeftCrumb _ _):_) = goUp s >>= goRight >>= findLeftLeaf
+findTheClosestRightmostLeaf _ = Nothing
 
 splitShiftLeftCurrent :: Zipper Split -> Maybe (Zipper Split)
 splitShiftLeftCurrent l@(_, []) = Just l
 splitShiftLeftCurrent l@(_, (RightCrumb _ _):_) = Just l -- Do nothing. We can swap windows instead.
-splitShiftLeftCurrent l@(n, c:cs) = removeCurrent l >>= findTheClosestLeftmostLeaf >>= insertRightLeaf n
+splitShiftLeftCurrent l@(n, _) = removeCurrent l >>= findTheClosestLeftmostLeaf >>= insertRightLeaf n
 
 splitShiftRightCurrent :: Zipper Split -> Maybe (Zipper Split)
 splitShiftRightCurrent l@(_, []) = Just l
 splitShiftRightCurrent l@(_, (LeftCrumb _ _):_) = Just l -- Do nothing. We can swap windows instead.
-splitShiftRightCurrent l@(n, c:cs) = removeCurrent l >>= findTheClosestRightmostLeaf >>= insertLeftLeaf n
+splitShiftRightCurrent l@(n, _) = removeCurrent l >>= findTheClosestRightmostLeaf >>= insertLeftLeaf n
 
-isAllTheWay :: Direction2D -> Zipper Split -> Bool
-isAllTheWay _ (_, []) = True
-isAllTheWay R (_, LeftCrumb s _:_)
+isAllTheWay :: Direction2D -> Rational -> Zipper Split -> Bool
+isAllTheWay _ _ (_, []) = True
+isAllTheWay R _ (_, LeftCrumb s _:_)
   | axis s == Vertical = False
-isAllTheWay L (_, RightCrumb s _:_)
+isAllTheWay L _ (_, RightCrumb s _:_)
   | axis s == Vertical = False
-isAllTheWay D (_, LeftCrumb s _:_)
+isAllTheWay D _ (_, LeftCrumb s _:_)
   | axis s == Horizontal = False
-isAllTheWay U (_, RightCrumb s _:_)
+isAllTheWay U _ (_, RightCrumb s _:_)
   | axis s == Horizontal = False
-isAllTheWay dir z = fromMaybe False $ goUp z >>= Just . isAllTheWay dir
+isAllTheWay dir diff z = fromMaybe False $ goUp z >>= Just . isAllTheWay dir diff
 
-expandTreeTowards :: Direction2D -> Zipper Split -> Maybe (Zipper Split)
-expandTreeTowards _ z@(_, []) = Just z
-expandTreeTowards dir z
-  | isAllTheWay dir z = shrinkTreeFrom (oppositeDirection dir) z
-expandTreeTowards R (t, LeftCrumb s r:cs)
-  | axis s == Vertical = Just (t, LeftCrumb (increaseRatio s resizeDiff) r:cs)
-expandTreeTowards L (t, RightCrumb s l:cs)
-  | axis s == Vertical = Just (t, RightCrumb (increaseRatio s (-resizeDiff)) l:cs)
-expandTreeTowards D (t, LeftCrumb s r:cs)
-  | axis s == Horizontal = Just (t, LeftCrumb (increaseRatio s resizeDiff) r:cs)
-expandTreeTowards U (t, RightCrumb s l:cs)
-  | axis s == Horizontal = Just (t, RightCrumb (increaseRatio s (-resizeDiff)) l:cs)
-expandTreeTowards dir z = goUp z >>= expandTreeTowards dir
+expandTreeTowards :: Direction2D -> Rational -> Zipper Split -> Maybe (Zipper Split)
+expandTreeTowards _ _ z@(_, []) = Just z
+expandTreeTowards dir diff z
+  | isAllTheWay dir diff z = shrinkTreeFrom (oppositeDirection dir) diff z
+expandTreeTowards R diff (t, LeftCrumb s r:cs)
+  | axis s == Vertical = Just (t, LeftCrumb (increaseRatio s diff) r:cs)
+expandTreeTowards L diff (t, RightCrumb s l:cs)
+  | axis s == Vertical = Just (t, RightCrumb (increaseRatio s (-diff)) l:cs)
+expandTreeTowards D diff (t, LeftCrumb s r:cs)
+  | axis s == Horizontal = Just (t, LeftCrumb (increaseRatio s diff) r:cs)
+expandTreeTowards U diff (t, RightCrumb s l:cs)
+  | axis s == Horizontal = Just (t, RightCrumb (increaseRatio s (-diff)) l:cs)
+expandTreeTowards dir diff z = goUp z >>= expandTreeTowards dir diff
 
-shrinkTreeFrom :: Direction2D -> Zipper Split -> Maybe (Zipper Split)
-shrinkTreeFrom _ z@(_, []) = Just z
-shrinkTreeFrom R z@(_, LeftCrumb s _:_)
-  | axis s == Vertical = Just z >>= goSibling >>= expandTreeTowards L
-shrinkTreeFrom L z@(_, RightCrumb s _:_)
-  | axis s == Vertical = Just z >>= goSibling >>= expandTreeTowards R
-shrinkTreeFrom D z@(_, LeftCrumb s _:_)
-  | axis s == Horizontal = Just z >>= goSibling >>= expandTreeTowards U
-shrinkTreeFrom U z@(_, RightCrumb s _:_)
-  | axis s == Horizontal = Just z >>= goSibling >>= expandTreeTowards D
-shrinkTreeFrom dir z = goUp z >>= shrinkTreeFrom dir
+shrinkTreeFrom :: Direction2D -> Rational -> Zipper Split -> Maybe (Zipper Split)
+shrinkTreeFrom _ _ z@(_, []) = Just z
+shrinkTreeFrom R diff z@(_, LeftCrumb s _:_)
+  | axis s == Vertical = Just z >>= goSibling >>= expandTreeTowards L diff
+shrinkTreeFrom L diff z@(_, RightCrumb s _:_)
+  | axis s == Vertical = Just z >>= goSibling >>= expandTreeTowards R diff
+shrinkTreeFrom D diff z@(_, LeftCrumb s _:_)
+  | axis s == Horizontal = Just z >>= goSibling >>= expandTreeTowards U diff
+shrinkTreeFrom U diff z@(_, RightCrumb s _:_)
+  | axis s == Horizontal = Just z >>= goSibling >>= expandTreeTowards D diff
+shrinkTreeFrom dir diff z = goUp z >>= shrinkTreeFrom dir diff
 
 -- Direction2D refers to which direction the divider should move.
-autoSizeTree :: Direction2D -> Zipper Split -> Maybe (Zipper Split)
-autoSizeTree _ z@(_, []) = Just z
-autoSizeTree d z =
-    Just z >>= getSplit (toAxis d) >>= resizeTree d
+autoSizeTree :: Direction2D -> Rational -> Zipper Split -> Maybe (Zipper Split)
+autoSizeTree _ _ z@(_, []) = Just z
+autoSizeTree d f z =
+    Just z >>= getSplit (toAxis d) >>= resizeTree d f
 
 -- resizing once found the correct split. YOU MUST FIND THE RIGHT SPLIT FIRST.
-resizeTree :: Direction2D -> Zipper Split -> Maybe (Zipper Split)
-resizeTree _ z@(_, []) = Just z
-resizeTree R z@(_, LeftCrumb _ _:_) =
-  Just z >>= expandTreeTowards R
-resizeTree L z@(_, LeftCrumb _ _:_) =
-  Just z >>= shrinkTreeFrom    R
-resizeTree U z@(_, LeftCrumb _ _:_) =
-  Just z >>= shrinkTreeFrom    D
-resizeTree D z@(_, LeftCrumb _ _:_) =
-  Just z >>= expandTreeTowards D
-resizeTree R z@(_, RightCrumb _ _:_) =
-  Just z >>= shrinkTreeFrom    L
-resizeTree L z@(_, RightCrumb _ _:_) =
-  Just z >>= expandTreeTowards L
-resizeTree U z@(_, RightCrumb _ _:_) =
-  Just z >>= expandTreeTowards U
-resizeTree D z@(_, RightCrumb _ _:_) =
-  Just z >>= shrinkTreeFrom    U
+resizeTree :: Direction2D -> Rational -> Zipper Split -> Maybe (Zipper Split)
+resizeTree _ _ z@(_, []) = Just z
+resizeTree R diff z@(_, LeftCrumb _ _:_) =
+  Just z >>= expandTreeTowards R diff
+resizeTree L diff z@(_, LeftCrumb _ _:_) =
+  Just z >>= shrinkTreeFrom    R diff
+resizeTree U diff z@(_, LeftCrumb _ _:_) =
+  Just z >>= shrinkTreeFrom    D diff
+resizeTree D diff z@(_, LeftCrumb _ _:_) =
+  Just z >>= expandTreeTowards D diff
+resizeTree R diff z@(_, RightCrumb _ _:_) =
+  Just z >>= shrinkTreeFrom    L diff
+resizeTree L diff z@(_, RightCrumb _ _:_) =
+  Just z >>= expandTreeTowards L diff
+resizeTree U diff z@(_, RightCrumb _ _:_) =
+  Just z >>= expandTreeTowards U diff
+resizeTree D diff z@(_, RightCrumb _ _:_) =
+  Just z >>= shrinkTreeFrom    U diff
 
 getSplit :: Axis -> Zipper Split -> Maybe (Zipper Split)
 getSplit _ (_, []) = Nothing
@@ -408,13 +426,15 @@ resizeSplit :: Direction2D -> (Rational,Rational) -> Zipper Split -> Maybe (Zipp
 resizeSplit _ _ z@(_, []) = Just z
 resizeSplit dir (xsc,ysc) z = case goToBorder dir z of
   Nothing -> Just z
-  Just (t, crumb) -> Just $ case dir of
+  Just (t@Node{}, crumb) -> Just $ case dir of
     R -> (t{value=sp{ratio=scaleRatio (ratio sp) xsc}}, crumb)
     D -> (t{value=sp{ratio=scaleRatio (ratio sp) ysc}}, crumb)
     L -> (t{value=sp{ratio=1-scaleRatio (1-ratio sp) xsc}}, crumb)
     U -> (t{value=sp{ratio=1-scaleRatio (1-ratio sp) ysc}}, crumb)
     where sp = value t
           scaleRatio r fac = min 0.9 $ max 0.1 $ r*fac
+  Just (Leaf{}, _) ->
+    undefined -- silence -Wincomplete-uni-patterns (goToBorder/goUp never return a Leaf)
 
 -- starting from a leaf, go to node representing a border of the according window
 goToBorder :: Direction2D -> Zipper Split -> Maybe (Zipper Split)
@@ -490,7 +510,7 @@ toNodeRef l (Just (_, cs)) = NodeRef l (reverse $ map crumbToDir cs) []
 nodeRefToLeaf :: NodeRef -> Maybe (Zipper a) -> Maybe Int
 nodeRefToLeaf n (Just z) = case goToNode n z of
   Just (Leaf l, _) -> Just l
-  Just (Node _ _ _, _) -> Nothing
+  Just (Node{}, _) -> Nothing
   Nothing -> Nothing
 nodeRefToLeaf _ Nothing = Nothing
 
@@ -564,20 +584,20 @@ splitShiftNth _ b@(BinarySpacePartition _ _ _ (Just (Leaf _))) = b
 splitShiftNth Prev b = doToNth splitShiftLeftCurrent b
 splitShiftNth Next b = doToNth splitShiftRightCurrent b
 
-growNthTowards :: Direction2D -> BinarySpacePartition a -> BinarySpacePartition a
-growNthTowards _ (BinarySpacePartition _ _ _ Nothing) = emptyBSP
-growNthTowards _ b@(BinarySpacePartition _ _ _ (Just (Leaf _))) = b
-growNthTowards dir b = doToNth (expandTreeTowards dir) b
+growNthTowards :: Direction2D -> Rational -> BinarySpacePartition a -> BinarySpacePartition a
+growNthTowards _ _ (BinarySpacePartition _ _ _ Nothing) = emptyBSP
+growNthTowards _ _ b@(BinarySpacePartition _ _ _ (Just (Leaf _))) = b
+growNthTowards dir diff b = doToNth (expandTreeTowards dir diff) b
 
-shrinkNthFrom :: Direction2D -> BinarySpacePartition a -> BinarySpacePartition a
-shrinkNthFrom _ (BinarySpacePartition _ _ _ Nothing)= emptyBSP
-shrinkNthFrom _ b@(BinarySpacePartition _ _ _ (Just (Leaf _))) = b
-shrinkNthFrom dir b = doToNth (shrinkTreeFrom dir) b
+shrinkNthFrom :: Direction2D -> Rational -> BinarySpacePartition a -> BinarySpacePartition a
+shrinkNthFrom _ _ (BinarySpacePartition _ _ _ Nothing)= emptyBSP
+shrinkNthFrom _ _ b@(BinarySpacePartition _ _ _ (Just (Leaf _))) = b
+shrinkNthFrom dir diff b = doToNth (shrinkTreeFrom dir diff) b
 
-autoSizeNth :: Direction2D -> BinarySpacePartition a -> BinarySpacePartition a
-autoSizeNth _ (BinarySpacePartition _ _ _ Nothing) = emptyBSP
-autoSizeNth _ b@(BinarySpacePartition _ _ _ (Just (Leaf _))) = b
-autoSizeNth dir b = doToNth (autoSizeTree dir) b
+autoSizeNth :: Direction2D -> Rational -> BinarySpacePartition a -> BinarySpacePartition a
+autoSizeNth _ _ (BinarySpacePartition _ _ _ Nothing) = emptyBSP
+autoSizeNth _ _ b@(BinarySpacePartition _ _ _ (Just (Leaf _))) = b
+autoSizeNth dir diff b = doToNth (autoSizeTree dir diff) b
 
 resizeSplitNth :: Direction2D -> (Rational,Rational) -> BinarySpacePartition a -> BinarySpacePartition a
 resizeSplitNth _ _ (BinarySpacePartition _ _ _ Nothing) = emptyBSP
@@ -675,22 +695,25 @@ replaceFloating wsm = do
 -- some helpers to filter windows
 --
 getFloating :: X [Window]
-getFloating = (M.keys . W.floating) <$> gets windowset -- all floating windows
+getFloating = M.keys . W.floating <$> gets windowset -- all floating windows
+
+getHidden :: X [Window]
+getHidden = getStackSet >>= filterM (runQuery isMinimized) . W.integrate'
 
 getStackSet :: X (Maybe (W.Stack Window))
-getStackSet = (W.stack . W.workspace . W.current) <$> gets windowset -- windows on this WS (with floating)
+getStackSet = W.stack . W.workspace . W.current <$> gets windowset -- windows on this WS (with floating)
 
 getScreenRect :: X Rectangle
-getScreenRect = (screenRect . W.screenDetail . W.current) <$> gets windowset
+getScreenRect = screenRect . W.screenDetail . W.current <$> gets windowset
 
-withoutFloating :: [Window] -> Maybe (W.Stack Window) -> Maybe (W.Stack Window)
-withoutFloating fs = maybe Nothing (unfloat fs)
+withoutFloating :: [Window] -> [Window] -> Maybe (W.Stack Window) -> Maybe (W.Stack Window)
+withoutFloating fs hs = maybe Nothing (unfloat fs hs)
 
 -- ignore messages if current focus is on floating window, otherwise return stack without floating
-unfloat :: [Window] -> W.Stack Window -> Maybe (W.Stack Window)
-unfloat fs s = if W.focus s `elem` fs
+unfloat :: [Window] -> [Window] -> W.Stack Window -> Maybe (W.Stack Window)
+unfloat fs hs s = if W.focus s `elem` fs
       then Nothing
-      else Just $ s{W.up = W.up s \\ fs, W.down = W.down s \\ fs}
+      else Just $ s{W.up = W.up s \\ (fs ++ hs), W.down = W.down s \\ (fs ++ hs)}
 
 instance LayoutClass BinarySpacePartition Window where
   doLayout b r s = do
@@ -724,9 +747,10 @@ instance LayoutClass BinarySpacePartition Window where
    | otherwise = do
        ws <- getStackSet
        fs <- getFloating
+       hs <- getHidden
        r <- getScreenRect
        -- removeBorder $ refWins $ getSelectedNode b
-       let lws = withoutFloating fs ws                                    -- tiled windows on WS
+       let lws = withoutFloating fs hs ws                                 -- tiled windows on WS
            lfs = maybe [] W.integrate ws \\ maybe [] W.integrate lws      -- untiled windows on WS
            b'  = handleMesg r                -- transform tree (concerns only tiled windows)
            ws' = adjustStack ws lws lfs b'   -- apply transformation to window stack, reintegrate floating wins
@@ -740,9 +764,9 @@ instance LayoutClass BinarySpacePartition Window where
                               , fmap move          (fromMessage m)
                               , fmap splitShift    (fromMessage m)
                               ]
-          resize (ExpandTowards dir) = growNthTowards dir b
-          resize (ShrinkFrom dir) = shrinkNthFrom dir b
-          resize (MoveSplit dir) = autoSizeNth dir b
+          resize (ExpandTowardsBy dir diff) = growNthTowards dir diff b
+          resize (ShrinkFromBy dir diff) = shrinkNthFrom dir diff b
+          resize (MoveSplitBy dir diff) = autoSizeNth dir diff b
           rotate Rotate = resetFoc $ rotateNth b
           swap Swap = resetFoc $ swapNth b
           rotateTr RotateL = resetFoc $ rotateTreeNth L b
@@ -754,8 +778,8 @@ instance LayoutClass BinarySpacePartition Window where
           splitShift (SplitShift dir) = resetFoc $ splitShiftNth dir b
 
           b = numerateLeaves b_orig
-          resetFoc bsp = bsp{getFocusedNode=(getFocusedNode bsp){refLeaf=(-1)}
-                            ,getSelectedNode=(getSelectedNode bsp){refLeaf=(-1)}}
+          resetFoc bsp = bsp{getFocusedNode=(getFocusedNode bsp){refLeaf= -1}
+                            ,getSelectedNode=(getSelectedNode bsp){refLeaf= -1}}
 
   description _  = "BSP"
 
@@ -764,6 +788,7 @@ handleResize :: BinarySpacePartition Window -> WindowArrangerMsg -> X (Maybe (Bi
 handleResize b (SetGeometry newrect@(Rectangle _ _ w h)) = do
   ws <- getStackSet
   fs <- getFloating
+  hs <- getHidden
   case W.focus <$> ws of
     Nothing -> return Nothing
     Just win -> do
@@ -772,7 +797,7 @@ handleResize b (SetGeometry newrect@(Rectangle _ _ w h)) = do
       let (xsc,ysc)   = (fi w % fi ow, fi h % fi oh)
           (xsc',ysc') = (rough xsc, rough ysc)
           dirs = changedDirs oldrect newrect (fi mx,fi my)
-          n = elemIndex win $ maybe [] W.integrate $ withoutFloating fs ws
+          n = elemIndex win $ maybe [] W.integrate $ withoutFloating fs hs ws
       -- unless (isNothing dir) $ debug $
       --       show (fi x-fi ox,fi y-fi oy) ++ show (fi w-fi ow,fi h-fi oh)
       --       ++ show dir ++ " " ++ show win ++ " " ++ show (mx,my)
@@ -803,7 +828,7 @@ updateNodeRef b force r = do
             else return b
     b'' <- if force then return b'{getSelectedNode=noRef} else return b'
     renderBorders r b''
-  where getCurrFocused = maybe 0 index <$> (withoutFloating <$> getFloating <*> getStackSet)
+  where getCurrFocused = maybe 0 index <$> (withoutFloating <$> getFloating <*> getHidden <*> getStackSet)
 
 -- create border around focused node if necessary
 renderBorders :: Rectangle -> BinarySpacePartition a -> X (BinarySpacePartition a)
@@ -832,8 +857,8 @@ createBorder (Rectangle wx wy ww wh) c = do
               ]
   ws <- mapM (\r -> createNewWindow r Nothing bc False) rects
   showWindows ws
-  maybe Nothing (\s -> Just s{W.down=W.down s ++ ws}) <$> getStackSet >>= replaceStack
-  M.union (M.fromList $ zip ws $ map toRR rects) . W.floating . windowset <$> get >>= replaceFloating
+  replaceStack . maybe Nothing (\s -> Just s{W.down=W.down s ++ ws}) =<< getStackSet
+  replaceFloating . M.union (M.fromList $ zip ws $ map toRR rects) . W.floating . windowset =<< get
   modify (\s -> s{mapped=mapped s `S.union` S.fromList ws})
   -- show <$> mapM isClient ws >>= debug
   return ws
@@ -843,6 +868,6 @@ createBorder (Rectangle wx wy ww wh) c = do
 removeBorder :: [Window] -> X ()
 removeBorder ws = do
   modify (\s -> s{mapped = mapped s `S.difference` S.fromList ws})
-  flip (foldl (flip M.delete)) ws . W.floating . windowset <$> get >>= replaceFloating
-  maybe Nothing (\s -> Just s{W.down=W.down s \\ ws}) <$> getStackSet >>= replaceStack
+  replaceFloating . flip (foldl (flip M.delete)) ws . W.floating . windowset =<< get
+  replaceStack . maybe Nothing (\s -> Just s{W.down=W.down s \\ ws}) =<< getStackSet
   deleteWindows ws

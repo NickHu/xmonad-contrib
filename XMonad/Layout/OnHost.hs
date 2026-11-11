@@ -1,8 +1,10 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
-
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.OnHost
+-- Description :  Use layouts and apply layout modifiers selectively, depending on the host.
 -- Copyright   :  (c) Brandon S Allbery, Brent Yorgey
 -- License     :  BSD-style (see LICENSE)
 --
@@ -26,14 +28,16 @@ module XMonad.Layout.OnHost (-- * Usage
 
 import           XMonad
 import qualified XMonad.StackSet              as W
+import           XMonad.Prelude
 
 import           XMonad.Layout.LayoutModifier
 
-import           Data.Maybe                        (fromMaybe)
+import           Foreign                           (allocaArray0)
+import           Foreign.C
 import           System.Posix.Env                  (getEnv)
 
 -- $usage
--- You can use this module by importing it into your ~\/.xmonad\/xmonad.hs file:
+-- You can use this module by importing it into your @xmonad.hs@ file:
 --
 -- > import XMonad.Layout.OnHost
 --
@@ -46,7 +50,7 @@ import           System.Posix.Env                  (getEnv)
 --
 -- Note that @l1@, @l2@, and @l3@ can be arbitrarily complicated
 -- layouts, e.g. @(Full ||| smartBorders $ tabbed shrinkText
--- defaultTConf ||| ...)@, and @m1@ can be any layout modifier, i.e. a
+-- def ||| ...)@, and @m1@ can be any layout modifier, i.e. a
 -- function of type @(l a -> ModifiedLayout lm l a)@.
 --
 -- In another scenario, suppose you wanted to have layouts A, B, and C
@@ -55,11 +59,13 @@ import           System.Posix.Env                  (getEnv)
 --
 -- > layoutHook = A ||| B ||| onHost "foo" D C
 --
--- Note that we rely on '$HOST' being set in the environment, as is true on most
--- modern systems; if it's not, you may want to use a wrapper around xmonad or
--- perhaps use 'System.Posix.Env.setEnv' (or 'putEnv') to set it in 'main'.
--- This is to avoid dragging in the network package as an xmonad dependency.
--- If '$HOST' is not defined, it will behave as if the host name never matches.
+-- Note that we rely on either @$HOST@ being set in the environment, or
+-- <https://linux.die.net/man/2/gethostname gethostname> returning something
+-- useful, as is true on most modern systems; if this is not the case for you,
+-- you may want to use a wrapper around xmonad or perhaps use
+-- 'System.Posix.Env.setEnv' (or 'putEnv') to set @$HOST@ in 'main'. If
+-- neither of the two methods work, the module will behave as if the host name
+-- never matches.
 --
 -- Also note that '$HOST' is usually a fully qualified domain name, not a short name.
 -- If you use a short name, this code will try to truncate $HOST to match; this may
@@ -70,8 +76,8 @@ import           System.Posix.Env                  (getEnv)
 --   'onHost', and so on.
 onHost :: (LayoutClass l1 a, LayoutClass l2 a)
        => String -- ^ the name of the host to match
-       -> (l1 a) -- ^ layout to use on the matched host
-       -> (l2 a) -- ^ layout to use everywhere else
+       -> l1 a   -- ^ layout to use on the matched host
+       -> l2 a   -- ^ layout to use everywhere else
        -> OnHost l1 l2 a
 onHost host = onHosts [host]
 
@@ -79,10 +85,10 @@ onHost host = onHosts [host]
 --   another to use on all other hosts.
 onHosts :: (LayoutClass l1 a, LayoutClass l2 a)
         => [String] -- ^ names of hosts to match
-        -> (l1 a)   -- ^ layout to use on matched hosts
-        -> (l2 a)   -- ^ layout to use everywhere else
+        -> l1 a     -- ^ layout to use on matched hosts
+        -> l2 a     -- ^ layout to use everywhere else
         -> OnHost l1 l2 a
-onHosts hosts l1 l2 = OnHost hosts False l1 l2
+onHosts hosts = OnHost hosts False
 
 -- | Specify a layout modifier to apply on a particular host; layouts
 --   on all other hosts will remain unmodified.
@@ -115,16 +121,16 @@ data OnHost l1 l2 a = OnHost [String]
 
 instance (LayoutClass l1 a, LayoutClass l2 a, Show a) => LayoutClass (OnHost l1 l2) a where
     runLayout (W.Workspace i p@(OnHost hosts _ lt lf) ms) r = do
-      h <- io $ getEnv "HOST"
+      h <- io $ getEnv "HOST" <|> getHostName
       if maybe False (`elemFQDN` hosts) h
         then do (wrs, mlt') <- runLayout (W.Workspace i lt ms) r
                 return (wrs, Just $ mkNewOnHostT p mlt')
         else do (wrs, mlt') <- runLayout (W.Workspace i lf ms) r
                 return (wrs, Just $ mkNewOnHostF p mlt')
 
-    handleMessage (OnHost hosts bool lt lf) m
-        | bool      = handleMessage lt m >>= maybe (return Nothing) (\nt -> return . Just $ OnHost hosts bool nt lf)
-        | otherwise = handleMessage lf m >>= maybe (return Nothing) (\nf -> return . Just $ OnHost hosts bool lt nf)
+    handleMessage (OnHost hosts choice lt lf) m
+        | choice    = handleMessage lt m >>= maybe (return Nothing) (\nt -> return . Just $ OnHost hosts choice nt lf)
+        | otherwise = handleMessage lf m >>= maybe (return Nothing) (return . Just . OnHost hosts choice lt)
 
     description (OnHost _ True  l1 _) = description l1
     description (OnHost _ _     _ l2) = description l2
@@ -136,7 +142,7 @@ mkNewOnHostT (OnHost hosts _ lt lf) mlt' =
 
 mkNewOnHostF :: OnHost l1 l2 a -> Maybe (l2 a) -> OnHost l1 l2 a
 mkNewOnHostF (OnHost hosts _ lt lf) mlf' =
-  (\lf' -> OnHost hosts False lt lf') $ fromMaybe lf mlf'
+  OnHost hosts False lt $ fromMaybe lf mlf'
 
 -- | 'Data.List.elem' except that if one side has a dot and the other doesn't, we truncate
 --   the one that does at the dot.
@@ -153,3 +159,17 @@ eqFQDN a b
   | '.' `elem` a                 = takeWhile (/= '.') a ==                    b
   |                 '.' `elem` b =                    a == takeWhile (/= '.') b
   | otherwise                    =                    a ==                    b
+
+-----------------------------------------------------------------------
+-- cbits
+
+foreign import ccall "gethostname" gethostname :: CString -> CSize -> IO CInt
+
+getHostName :: IO (Maybe String)
+getHostName = allocaArray0 size $ \cstr -> do
+  throwErrnoIfMinus1_ "getHostName" $ gethostname cstr (fromIntegral size)
+  peekCString cstr <&> \case
+    "" -> Nothing
+    s  -> Just s
+ where
+  size = 256

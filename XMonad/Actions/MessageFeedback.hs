@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Actions.MessageFeedback
+-- Description :  An alternative @sendMessage@.
 -- Copyright    : (c) --   Quentin Moser <moserq@gmail.com>
 --                    2018 Yclept Nemo
 -- License      : BSD3
@@ -41,26 +42,18 @@ module XMonad.Actions.MessageFeedback
 
       -- ** Aliases
     , sm
-
-      -- * Backwards Compatibility
-      -- $backwardsCompatibility
-    , send, sendSM, sendSM_
-    , tryInOrder, tryInOrder_
-    , tryMessage, tryMessage_
     ) where
 
 import XMonad               ( Window )
 import XMonad.Core          ( X(), Message, SomeMessage(..), LayoutClass(..), windowset, catchX, WorkspaceId, Layout, whenJust )
-import XMonad.StackSet      ( Workspace, current, workspace, layout, tag )
 import XMonad.Operations    ( updateLayout, windowBracket, modifyWindowSet )
+import XMonad.Prelude
+import XMonad.StackSet      ( Workspace, current, workspace, layout, tag )
 
-import Data.Maybe           ( isJust )
-import Control.Monad        ( void )
 import Control.Monad.State  ( gets )
-import Control.Applicative  ( liftA2 )
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Actions.MessageFeedback
 --
@@ -108,7 +101,7 @@ import Control.Applicative  ( liftA2 )
 -- 'XMonad.Operations.sendMessage' code - foregoes the O(n) 'updateLayout'.
 sendSomeMessageB :: SomeMessage -> X Bool
 sendSomeMessageB m = windowBracket id $ do
-    w  <- workspace . current <$> gets windowset
+    w  <- gets ((workspace . current) . windowset)
     ml <- handleMessage (layout w) m `catchX` return Nothing
     whenJust ml $ \l ->
         modifyWindowSet $ \ws -> ws { current = (current ws)
@@ -140,7 +133,7 @@ sendSomeMessageWithNoRefresh m = void . sendSomeMessageWithNoRefreshB m
 -- 'XMonad.Operations.sendMessageWithNoRefresh' (does not refresh).
 sendSomeMessageWithNoRefreshToCurrentB :: SomeMessage -> X Bool
 sendSomeMessageWithNoRefreshToCurrentB m
-    =   (gets $ workspace . current . windowset)
+    =   gets (workspace . current . windowset)
     >>= sendSomeMessageWithNoRefreshB m
 
 -- | Variant of 'sendSomeMessageWithNoRefreshToCurrentB' that discards the
@@ -231,46 +224,3 @@ tryMessageWithNoRefreshToCurrent m = void . tryMessageWithNoRefreshToCurrentB m
 -- | Convenience shorthand for 'SomeMessage'.
 sm :: Message a => a -> SomeMessage
 sm = SomeMessage
-
---------------------------------------------------------------------------------
--- Backwards Compatibility:
---------------------------------------------------------------------------------
-{-# DEPRECATED send "Use sendMessageB instead." #-}
-{-# DEPRECATED sendSM "Use sendSomeMessageB instead." #-}
-{-# DEPRECATED sendSM_ "Use sendSomeMessage instead." #-}
-{-# DEPRECATED tryInOrder "Use tryInOrderWithNoRefreshToCurrentB instead." #-}
-{-# DEPRECATED tryInOrder_ "Use tryInOrderWithNoRefreshToCurrent instead." #-}
-{-# DEPRECATED tryMessage "Use tryMessageWithNoRefreshToCurrentB instead." #-}
-{-# DEPRECATED tryMessage_ "Use tryMessageWithNoRefreshToCurrent instead." #-}
-
--- $backwardsCompatibility
--- The following functions exist solely for compatibility with pre-0.14
--- releases.
-
--- | See 'sendMessageWithNoRefreshToCurrentB'.
-send :: Message a => a -> X Bool
-send = sendMessageWithNoRefreshToCurrentB
-
--- | See 'sendSomeMessageWithNoRefreshToCurrentB'.
-sendSM :: SomeMessage -> X Bool
-sendSM = sendSomeMessageWithNoRefreshToCurrentB
-
--- | See 'sendSomeMessageWithNoRefreshToCurrent'.
-sendSM_ :: SomeMessage -> X ()
-sendSM_ = sendSomeMessageWithNoRefreshToCurrent
-
--- | See 'tryInOrderWithNoRefreshToCurrentB'.
-tryInOrder :: [SomeMessage] -> X Bool
-tryInOrder = tryInOrderWithNoRefreshToCurrentB
-
--- | See 'tryInOrderWithNoRefreshToCurrent'.
-tryInOrder_ :: [SomeMessage] -> X ()
-tryInOrder_ = tryInOrderWithNoRefreshToCurrent
-
--- | See 'tryMessageWithNoRefreshToCurrentB'.
-tryMessage :: (Message a, Message b) => a -> b -> X Bool
-tryMessage = tryMessageWithNoRefreshToCurrentB
-
--- | See 'tryMessageWithNoRefreshToCurrent'.
-tryMessage_ :: (Message a, Message b) => a -> b -> X ()
-tryMessage_ = tryMessageWithNoRefreshToCurrent

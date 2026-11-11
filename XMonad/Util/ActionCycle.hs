@@ -2,6 +2,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.ActionCycle
+-- Description :  Provides a way to implement cycling actions.
 -- Copyright   :  (c) 2020 Leon Kowarschick
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -32,7 +33,7 @@ import Data.List.NonEmpty ((!!), NonEmpty((:|)))
 
 
 -- $usage
--- You can use this module to implement cycling key-bindings by importing 'XMonad.Util.ActionCycle'
+-- You can use this module to implement cycling key-bindings by importing "XMonad.Util.ActionCycle"
 --
 -- > import XMonad.Util.ActionCycle
 --
@@ -70,7 +71,7 @@ cycleActionWithResult name actions = do
   actions !! idx
 
 
-newtype ActionCycleState = ActionCycleState (M.Map String Int) deriving (Typeable)
+newtype ActionCycleState = ActionCycleState (M.Map String Int)
 
 instance ExtensionClass ActionCycleState where
   initialValue = ActionCycleState mempty

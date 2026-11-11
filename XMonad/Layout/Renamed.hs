@@ -3,6 +3,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Groups
+-- Description :  Modify the description of a layout in a flexible way.
 -- Copyright   :  Quentin Moser <moserq@gmail.com>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -18,6 +19,7 @@
 module XMonad.Layout.Renamed ( -- * Usage
                                -- $usage
                                renamed
+                             , named
                              , Rename(..) ) where
 
 import XMonad
@@ -28,7 +30,7 @@ import XMonad.Layout.LayoutModifier
 --
 -- > import XMonad.Layout.Renamed
 --
--- to your @~\/.xmonad\/xmonad.hs@.
+-- to your @xmonad.hs@.
 --
 -- You can then use 'renamed' to modify the description of your
 -- layouts. For example:
@@ -38,6 +40,10 @@ import XMonad.Layout.LayoutModifier
 -- | Apply a list of 'Rename' values to a layout, from left to right.
 renamed :: [Rename a] -> l a -> ModifiedLayout Rename l a
 renamed = ModifiedLayout . Chain
+
+-- | Rename a layout. (Convenience alias for @renamed [Replace s]@.)
+named :: String -> l a -> ModifiedLayout Rename l a
+named s = renamed [Replace s]
 
 -- | The available renaming operations
 data Rename a = CutLeft Int -- ^ Remove a number of characters from the left
@@ -70,7 +76,7 @@ apply (Append s') s = s ++ s'
 apply (Prepend s') s = s' ++ s
 apply (AppendWords s') s = unwords $ words s ++ [s']
 apply (PrependWords s') s = unwords $ s' : words s
-apply (Chain rs) s = ($s) $ foldr (flip (.)) id $ map apply rs
+apply (Chain rs) s = ($ s) $ foldr (flip (.) . apply) id rs
 
 instance LayoutModifier Rename a where
     modifyDescription r l = apply r (description l)

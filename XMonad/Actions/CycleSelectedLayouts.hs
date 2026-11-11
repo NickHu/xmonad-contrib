@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.CycleSelectedLayouts
+-- Description :  Cycle through the given subset of layouts.
 -- Copyright   :  (c) Roman Cheplyaka
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -18,34 +19,29 @@ module XMonad.Actions.CycleSelectedLayouts (
     cycleThroughLayouts) where
 
 import XMonad
-import Data.List (findIndex)
-import Data.Maybe (fromMaybe)
-import XMonad.Layout.LayoutCombinators (JumpToLayout(..))
+import XMonad.Prelude (elemIndex, fromMaybe)
 import qualified XMonad.StackSet as S
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
--- > import XMonad hiding ((|||))
--- > import XMonad.Layout.LayoutCombinators ((|||))
+-- > import XMonad
 -- > import XMonad.Actions.CycleSelectedLayouts
 --
 -- >   , ((modm,  xK_t ),   cycleThroughLayouts ["Tall", "Mirror Tall"])
---
--- Make sure you are using NewSelect from XMonad.Layout.LayoutCombinators,
--- rather than the Select defined in xmonad core.
 
 cycleToNext :: (Eq a) => [a] -> a -> Maybe a
 cycleToNext lst a = do
     -- not beautiful but simple and readable
-    ind <- findIndex (a==) lst
+    ind <- elemIndex a lst
     return $ lst !! if ind == length lst - 1 then 0 else ind+1
 
 -- | If the current layout is in the list, cycle to the next layout. Otherwise,
 --   apply the first layout from list.
 cycleThroughLayouts :: [String] -> X ()
-cycleThroughLayouts lst = do
+cycleThroughLayouts []         = pure ()
+cycleThroughLayouts lst@(x: _) = do
     winset <- gets windowset
     let ld = description . S.layout . S.workspace . S.current $ winset
-    let newld = fromMaybe (head lst) (cycleToNext lst ld)
+    let newld = fromMaybe x (cycleToNext lst ld)
     sendMessage $ JumpToLayout newld

@@ -1,5 +1,6 @@
 {- |
 Module      :  XMonad.Prompt.Zsh
+Description :  Zsh-specific version of "XMonad.Prompt.Shell".
 Copyright   :  (C) 2020 Zubin Duggal
 License     :  BSD3
 
@@ -27,7 +28,7 @@ import XMonad.Util.Run
 
 {- $usage
 1. Grab the @capture.zsh@ script to capture zsh completions from <https://github.com/Valodim/zsh-capture-completion>
-2. In your @~\/.xmonad\/xmonad.hs@:
+2. In your @xmonad.hs@:
 
 > import XMonad.Prompt
 > import XMonad.Prompt.Zsh
@@ -37,7 +38,7 @@ import XMonad.Util.Run
 >   , ((modm .|. controlMask, xK_x), zshPrompt def "/path/to/capture.zsh")
 
 For detailed instruction on editing the key binding see
-"XMonad.Doc.Extending#Editing_key_bindings". -}
+<https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>. -}
 
 data Zsh = Zsh
 
@@ -54,11 +55,10 @@ getZshCompl :: FilePath -> String -> IO [String]
 getZshCompl capture s
   | s == ""   = return []
   | otherwise = processCompls <$> runProcessWithInput capture [s] ""
-    where processCompls = map (\x -> (skipLastWord s ++ filter (/= '\r') x)) . lines
+    where processCompls = map (\x -> skipLastWord s ++ filter (/= '\r') x) . lines
 
 -- | Removes the argument description from the zsh completion
 stripZsh :: String -> String
 stripZsh "" = ""
 stripZsh (' ':'-':'-':' ':_) = ""
 stripZsh (x:xs) = x : stripZsh xs
-

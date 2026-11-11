@@ -1,6 +1,8 @@
+{-# LANGUAGE LambdaCase #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.RemoteWindows
+-- Description :  A module to find out whether the window is remote or local.
 -- Copyright   :  (c) Anton Vorontsov <anton@enomsg.org> 2014
 -- License     :  BSD-style (as xmonad)
 --
@@ -38,12 +40,11 @@ module XMonad.Util.RemoteWindows
 
 import XMonad
 import XMonad.Util.WindowProperties
-import Data.Maybe
-import Control.Monad
+import XMonad.Prelude
 import System.Posix.Env
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad
 -- > import XMonad.Util.RemoteWindows
@@ -72,7 +73,7 @@ setRemoteProp w host = do
 -- checking environment variables and assuming that hostname never
 -- changes.
 isLocalWindow :: Window -> X Bool
-isLocalWindow w = getProp32s "XMONAD_REMOTE" w >>= \p -> case p of
+isLocalWindow w = getProp32s "XMONAD_REMOTE" w >>= \case
     Just [y] -> return $ y == 0
     _ -> io guessHostName >>= \host -> hasProperty (Machine host) w
 

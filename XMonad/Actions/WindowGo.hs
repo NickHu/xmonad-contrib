@@ -1,5 +1,8 @@
+{-# LANGUAGE ViewPatterns #-}
+
 {- |
 Module      :  XMonad.Actions.WindowGo
+Description :  Operations for raising (traveling to) windows.
 License     :  Public domain
 
 Maintainer  :  <gwern0@gmail.com>
@@ -36,10 +39,8 @@ module XMonad.Actions.WindowGo (
                  module XMonad.ManageHook
                 ) where
 
-import Control.Monad
-import Data.Char (toLower)
 import qualified Data.List as L (nub,sortBy)
-import Data.Monoid
+import XMonad.Prelude
 import XMonad (Query(), X(), ManageHook, WindowSet, withWindowSet, runQuery, liftIO, ask)
 import Graphics.X11 (Window)
 import XMonad.ManageHook
@@ -47,9 +48,11 @@ import XMonad.Operations (windows)
 import XMonad.Prompt.Shell (getBrowser, getEditor)
 import qualified XMonad.StackSet as W (peek, swapMaster, focusWindow, workspaces, StackSet, Workspace, integrate', tag, stack)
 import XMonad.Util.Run (safeSpawnProg)
+import qualified Data.List.NonEmpty as NE
+
 {- $usage
 
-Import the module into your @~\/.xmonad\/xmonad.hs@:
+Import the module into your @xmonad.hs@:
 
 > import XMonad.Actions.WindowGo
 
@@ -65,7 +68,8 @@ appropriate one, or cover your bases by using instead something like:
 > (className =? "Firefox" <||> className =? "Firefox-bin")
 
 For detailed instructions on editing your key bindings, see
-"XMonad.Doc.Extending#Editing_key_bindings". -}
+<https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
+-}
 
 -- | Get the list of workspaces sorted by their tag
 workspacesSorted :: Ord i => W.StackSet i l a s sd -> [W.Workspace i l a]
@@ -88,7 +92,10 @@ ifWindows qry f el = withWindowSet $ \wins -> do
 -- | The same as ifWindows, but applies a ManageHook to the first match
 -- instead and discards the other matches
 ifWindow :: Query Bool -> ManageHook -> X () -> X ()
-ifWindow qry mh = ifWindows qry (windows . appEndo <=< runQuery mh . head)
+ifWindow qry mh = ifWindows qry (windows . appEndo <=< runQuery mh . NE.head . notEmpty)
+-- ifWindows guarantees that the list given to the function is
+-- non-empty. This should really use Data.List.NonEmpty, but, alas,
+-- that would be a breaking change.
 
 {- | 'action' is an executable to be run via 'safeSpawnProg' (of "XMonad.Util.Run") if the Window cannot be found.
    Presumably this executable is the same one that you were looking for.
@@ -159,9 +166,12 @@ raiseNextMaybeCustomFocus :: (Window -> WindowSet -> WindowSet) -> X() -> Query 
 raiseNextMaybeCustomFocus focusFn f qry = flip (ifWindows qry) f $ \ws -> do
   foc <- withWindowSet $ return . W.peek
   case foc of
-    Just w | w `elem` ws -> let (_:y:_) = dropWhile (/=w) $ cycle ws -- cannot fail to match
-                            in windows $ focusFn y
-    _ -> windows . focusFn . head $ ws
+    Just w | w `elem` ws ->
+        let (notEmpty -> _ :| (notEmpty -> y :| _)) = dropWhile (/=w) $ cycle ws
+            -- cannot fail to match
+        in windows $ focusFn y
+    _ -> windows . focusFn . NE.head . notEmpty $ ws
+         -- ws is non-empty by ifWindows's definition.
 
 -- | Given a function which gets us a String, we try to raise a window with that classname,
 --   or we then interpret that String as a executable name.

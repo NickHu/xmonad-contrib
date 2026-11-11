@@ -1,6 +1,8 @@
+{-# LANGUAGE MultiWayIf #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Hooks.ServerMode
+-- Description :  Send commands to a running xmonad process.
 -- Copyright   :  (c) Peter Olson 2013 and Andrea Rossato and David Roundy 2007
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -26,17 +28,15 @@ module XMonad.Hooks.ServerMode
     , serverModeEventHookF
     ) where
 
-import Control.Monad (when)
-import Data.Maybe
-import Data.Monoid
 import System.IO
 
 import XMonad
+import XMonad.Prelude
 import XMonad.Actions.Commands
 
 -- $usage
 -- You can use this module with the following in your
--- @~\/.xmonad\/xmonad.hs@:
+-- @xmonad.hs@:
 --
 -- > import XMonad.Hooks.ServerMode
 --
@@ -47,7 +47,7 @@ import XMonad.Actions.Commands
 -- in stderr (so that you can read it in @~\/.xsession-errors@). Uses "XMonad.Actions.Commands#defaultCommands" as the default.
 --
 -- > main = xmonad def { handleEventHook = serverModeEventHook }
--- 
+--
 -- > xmonadctl 0 # tells xmonad to output command list
 -- > xmonadctl 1 # tells xmonad to switch to workspace 1
 --
@@ -57,12 +57,12 @@ serverModeEventHook = serverModeEventHook' defaultCommands
 -- | serverModeEventHook' additionally takes an action to generate the list of
 -- commands.
 serverModeEventHook' :: X [(String,X ())] -> Event -> X All
-serverModeEventHook' cmdAction ev = serverModeEventHookF "XMONAD_COMMAND" (sequence_ . map helper . words) ev
+serverModeEventHook' cmdAction = serverModeEventHookF "XMONAD_COMMAND" (mapM_ helper . words)
         where helper cmd = do cl <- cmdAction
                               case lookup cmd (zip (map show [1 :: Integer ..]) cl) of
                                 Just (_,action) -> action
                                 Nothing         -> mapM_ (io . hPutStrLn stderr) . listOfCommands $ cl
-              listOfCommands cl = map (uncurry (++)) $ zip (map show ([1..] :: [Int])) $ map ((++) " - " . fst) cl
+              listOfCommands cl = zipWith (++) (map show [1 :: Int ..]) (map ((++) " - " . fst) cl)
 
 
 -- | Executes a command of the list when receiving its name via a special ClientMessageEvent.
@@ -77,7 +77,7 @@ serverModeEventHookCmd = serverModeEventHookCmd' defaultCommands
 
 -- | Additionally takes an action to generate the list of commands
 serverModeEventHookCmd' :: X [(String,X ())] -> Event -> X All
-serverModeEventHookCmd' cmdAction ev = serverModeEventHookF "XMONAD_COMMAND" (sequence_ . map helper . words) ev
+serverModeEventHookCmd' cmdAction = serverModeEventHookF "XMONAD_COMMAND" (mapM_ helper . words)
         where helper cmd = do cl <- cmdAction
                               fromMaybe (io $ hPutStrLn stderr ("Couldn't find command " ++ cmd)) (lookup cmd cl)
 
@@ -89,14 +89,15 @@ serverModeEventHookCmd' cmdAction ev = serverModeEventHookF "XMONAD_COMMAND" (se
 -- > xmonadctl -a XMONAD_PRINT "hello world"
 --
 serverModeEventHookF :: String -> (String -> X ()) -> Event -> X All
-serverModeEventHookF key func (ClientMessageEvent {ev_message_type = mt, ev_data = dt}) = do
-        d <- asks display
-        atm <- io $ internAtom d key False
-        when (mt == atm && dt /= []) $ do
-         let atom = fromIntegral (head dt)
+serverModeEventHookF key func ClientMessageEvent {ev_message_type = mt, ev_data = dt} = do
+  d <- asks display
+  atm <- io $ internAtom d key False
+  if | mt == atm, Just dth <- listToMaybe dt -> do
+         let atom = fromIntegral dth
          cmd <- io $ getAtomName d atom
          case cmd of
-              Just command -> func command
-              Nothing -> io $ hPutStrLn stderr ("Couldn't retrieve atom " ++ (show atom))
-        return (All True)
+           Just command -> func command
+           Nothing -> io $ hPutStrLn stderr ("Couldn't retrieve atom " ++ show atom)
+     | otherwise -> pure ()
+  return (All True)
 serverModeEventHookF _ _ _ = return (All True)

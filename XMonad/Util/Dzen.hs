@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.Dzen
+-- Description :  Handy wrapper for dzen.
 -- Copyright   :  (c) glasser@mit.edu
 -- License     :  BSD
 --
@@ -42,7 +43,7 @@ module XMonad.Util.Dzen (
     (>=>),
   ) where
 
-import Control.Monad
+import XMonad.Prelude
 import XMonad
 import XMonad.StackSet
 import XMonad.Util.Run (runProcessWithInputAndWait, seconds)

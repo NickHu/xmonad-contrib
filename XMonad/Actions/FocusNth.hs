@@ -1,6 +1,9 @@
+{-# LANGUAGE ViewPatterns #-}
+
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Actions.FocusNth
+-- Description  : Focus the nth window of the current workspace.
 -- Copyright    : (c) Karsten Schoelzel <kuser@gmx.de>
 -- License      : BSD
 --
@@ -17,11 +20,12 @@ module XMonad.Actions.FocusNth (
                  focusNth,focusNth',
                  swapNth,swapNth') where
 
-import XMonad.StackSet
 import XMonad
+import XMonad.Prelude
+import XMonad.StackSet
 
 -- $usage
--- Add the import to your @~\/.xmonad\/xmonad.hs@:
+-- Add the import to your @xmonad.hs@:
 --
 -- > import XMonad.Actions.FocusNth
 --
@@ -32,15 +36,15 @@ import XMonad
 -- >     | (i, k) <- zip [0 .. 8] [xK_1 ..]]
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 -- | Give focus to the nth window of the current workspace.
 focusNth :: Int -> X ()
 focusNth = windows . modify' . focusNth'
 
 focusNth' :: Int -> Stack a -> Stack a
-focusNth' n s@(Stack _ ls rs) | (n < 0) || (n > length(ls) + length(rs)) = s
-                              | otherwise = listToStack n (integrate s)
+focusNth' n s | n >= 0, (ls, t:rs) <- splitAt n (integrate s) = Stack t (reverse ls) rs
+              | otherwise = s
 
 -- | Swap current window with nth. Focus stays in the same position
 swapNth :: Int -> X ()
@@ -49,14 +53,5 @@ swapNth = windows . modify' . swapNth'
 swapNth' :: Int -> Stack a -> Stack a
 swapNth' n s@(Stack c l r)
   | (n < 0) || (n > length l + length r) || (n == length l) = s
-  | n < length l = let (nl, nc:nr) = splitAt (length l - n - 1) l in Stack nc (nl ++ c : nr) r
-  | otherwise    = let (nl, nc:nr) = splitAt (n - length l - 1) r in Stack nc l (nl ++ c : nr)
-                                                                          
-
-listToStack :: Int -> [a] -> Stack a
-listToStack n l = Stack t ls rs
- where
-    (t:rs)    = drop n l
-    ls        = reverse (take n l)
-
-
+  | n < length l = let (nl, notEmpty -> nc :| nr) = splitAt (length l - n - 1) l in Stack nc (nl ++ c : nr) r
+  | otherwise    = let (nl, notEmpty -> nc :| nr) = splitAt (n - length l - 1) r in Stack nc l (nl ++ c : nr)

@@ -2,6 +2,7 @@
 
 -- |
 -- Module      :  XMonad.Layout.Cross
+-- Description :  A Cross Layout with the main window in the center.
 -- Copyright   :  (c) Luis Cabellos <zhen.sydow@gmail.com>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -11,7 +12,7 @@
 --
 -- A Cross Layout with the main window in the center.
 --
-module XMonad.Layout.Cross(
+module XMonad.Layout.Cross {-# DEPRECATED "Use XMonad.Layout.Circle or XMonad.Layout.ThreeColumn.ThreeColMid instead" #-} (
                           -- * Usage
                           -- $usage
                           simpleCross
@@ -19,10 +20,10 @@ module XMonad.Layout.Cross(
 
 import XMonad( Dimension, Rectangle(..), LayoutClass(..), Resize(..), fromMessage )
 import XMonad.StackSet( focus, up, down )
-import Control.Monad( msum )
+import XMonad.Prelude( msum )
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.Cross
 --
@@ -34,7 +35,7 @@ import Control.Monad( msum )
 
 -- apply a factor to a Rectangle Dimension
 (<%>) :: Dimension -> Rational -> Dimension
-d <%> f = floor $ f * (fromIntegral d)
+d <%> f = floor $ f * fromIntegral d
 
 -- | The Cross Layout draws the focused window in the center of the screen
 --   and part of the other windows on the sides. The 'Shrink' and 'Expand'
@@ -57,10 +58,10 @@ simpleCross :: Cross a
 simpleCross = Cross (4/5) (1/100)
 
 instance LayoutClass Cross a where
-    pureLayout (Cross f _) r s = [(focus s, mainRect r f)] ++
-                                 (zip winCycle (upRects r f)) ++
-                                 (zip (reverse winCycle) (downRects r f))
-        where winCycle = (up s) ++ (reverse (down s))
+    pureLayout (Cross f _) r s = [(focus s, mainRect r f)]
+                              ++ zip winCycle (upRects r f)
+                              ++ zip (reverse winCycle) (downRects r f)
+        where winCycle = up s ++ reverse (down s)
 
     pureMessage (Cross f d) m = msum [fmap resize (fromMessage m)]
         where resize Shrink = Cross (max (1/100) $ f - d) d
@@ -71,8 +72,8 @@ instance LayoutClass Cross a where
 -- get the Rectangle for the focused window
 mainRect :: Rectangle -> Rational -> Rectangle
 mainRect (Rectangle rx ry rw rh) f = Rectangle
-                                     (rx + (fromIntegral (rw <%> invf)))
-                                     (ry + (fromIntegral (rh <%> invf)))
+                                     (rx + fromIntegral (rw <%> invf))
+                                     (ry + fromIntegral (rh <%> invf))
                                      (rw <%> f) (rh <%> f)
     where invf = (1/2) * (1-f)
 
@@ -88,25 +89,24 @@ downRects r f = [bottomRectangle r nf, leftRectangle r nf]
 
 topRectangle :: Rectangle -> Rational -> Rectangle
 topRectangle (Rectangle rx ry rw rh) f = Rectangle
-                                         (rx + (fromIntegral (rw <%> ((1-f)*(1/2)))))
+                                         (rx + fromIntegral (rw <%> ((1-f)*(1/2))))
                                          ry
                                          (rw <%> f) (rh <%> ((1-f)*(1/2)))
 
 rightRectangle :: Rectangle -> Rational -> Rectangle
 rightRectangle (Rectangle rx ry rw rh) f = Rectangle
-                                           (rx + (fromIntegral (rw - (rw <%> (1/2)))))
-                                           (ry + (fromIntegral (rh <%> ((1-f)*(1/2)))))
+                                           (rx + fromIntegral (rw - (rw <%> (1/2))))
+                                           (ry + fromIntegral (rh <%> ((1-f)*(1/2))))
                                            (rw <%> (1/2)) (rh <%> f)
 
 bottomRectangle :: Rectangle -> Rational -> Rectangle
 bottomRectangle (Rectangle rx ry rw rh) f = Rectangle
-                                            (rx + (fromIntegral (rw <%> ((1-f)*(1/2)))))
-                                            (ry + (fromIntegral (rh - (rh <%> ((1-f)*(1/2))))))
+                                            (rx + fromIntegral (rw <%> ((1-f)*(1/2))))
+                                            (ry + fromIntegral (rh - (rh <%> ((1-f)*(1/2)))))
                                             (rw <%> f) (rh <%> ((1-f)*(1/2)))
 
 leftRectangle :: Rectangle -> Rational -> Rectangle
 leftRectangle (Rectangle rx ry rw rh) f = Rectangle
                                           rx
-                                           (ry + (fromIntegral (rh <%> ((1-f)*(1/2)))))
+                                           (ry + fromIntegral (rh <%> ((1-f)*(1/2))))
                                            (rw <%> (1/2)) (rh <%> f)
-

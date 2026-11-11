@@ -6,6 +6,8 @@
 -- A mostly striped down configuration that demonstrates spawnOnOnce
 --
 ---------------------------------------------------------------------
+module XMonad.Config.Saegesser {-# DEPRECATED "This module contains a personal configuration, to be removed from xmonad-contrib.  If you use this module, please copy the relevant parts to your configuration or obtain a copy of it on https://xmonad.org/configurations.html and include it as a local module." #-} where
+
 import System.IO
 
 import XMonad
@@ -37,7 +39,7 @@ main = do
     { terminal          = "xterm"
     , workspaces        = myWorkspaces
     , layoutHook        = myLayoutHook
-    , manageHook        = myManageHook <+> manageSpawn
+    , manageHook        = myManageHook <> manageSpawn
     , startupHook       = myStartupHook
     , logHook           = myLogHook myStatusBarPipe
     , focusFollowsMouse = False
@@ -58,7 +60,7 @@ myStartupHook = do
   spawnOnOnce "emacs" "emacs"
   spawnNOnOnce 4 "xterms" "xterm"
 
-myLayoutHook = smartBorders $ avoidStruts $ standardLayouts
+myLayoutHook = smartBorders $ avoidStruts standardLayouts
   where standardLayouts = tiled ||| mosaic 2 [3,2]  ||| Mirror tiled ||| Full
         tiled = ResizableTall nmaster delta ratio []
         nmaster = 1
@@ -68,7 +70,7 @@ myLayoutHook = smartBorders $ avoidStruts $ standardLayouts
 myLogHook p =  do
   copies <- wsContainingCopies
   let check ws | ws == "NSP" = ""                               -- Hide the scratchpad workspace
-               | ws `elem` copies = xmobarColor "red" "black" $ ws  -- Workspaces with copied windows are red on black
+               | ws `elem` copies = xmobarColor "red" "black" ws  -- Workspaces with copied windows are red on black
                | otherwise = ws
   dynamicLogWithPP $ xmobarPP { ppHidden = check
                               , ppOutput = hPutStrLn p
@@ -76,4 +78,3 @@ myLogHook p =  do
                               , ppTitle  = xmobarColor "green" "" . shorten 180
                               }
   fadeInactiveLogHook 0.6
-

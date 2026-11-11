@@ -1,7 +1,7 @@
- {-# LANGUAGE DeriveDataTypeable #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.KeyRemap
+-- Description :  Remap Keybinding on the fly.
 -- Copyright   :  (c) Christian Dietrich
 -- License     :  BSD-style (as xmonad)
 --
@@ -27,14 +27,13 @@ module XMonad.Actions.KeyRemap (
   ) where
 
 import XMonad
+import XMonad.Prelude
 import XMonad.Util.Paste
-import Data.List
 
 import qualified XMonad.Util.ExtensibleState as XS
-import Control.Monad
 
 
-data KeymapTable = KeymapTable [((KeyMask, KeySym), (KeyMask, KeySym))] deriving (Typeable, Show)
+newtype KeymapTable = KeymapTable [((KeyMask, KeySym), (KeyMask, KeySym))] deriving (Show)
 
 instance ExtensionClass KeymapTable where
    initialValue = KeymapTable []
@@ -125,8 +124,8 @@ extractKeyMapping (KeymapTable table) mask sym =
 buildKeyRemapBindings :: [KeymapTable] -> [((KeyMask, KeySym), X ())]
 buildKeyRemapBindings keyremaps =
   [((mask, sym), doKeyRemap mask sym) | (mask, sym) <- bindings]
-  where mappings = concat (map (\(KeymapTable table) -> table) keyremaps)
-        bindings = nub (map (\binding -> fst binding) mappings)
+  where mappings = concatMap (\(KeymapTable table) -> table) keyremaps
+        bindings = nub (map fst mappings)
 
 
 -- Here come the Keymappings
@@ -138,7 +137,7 @@ emptyKeyRemap = KeymapTable []
 dvorakProgrammerKeyRemap :: KeymapTable
 dvorakProgrammerKeyRemap =
   KeymapTable [((charToMask maskFrom, from), (charToMask maskTo, to)) |
-               (maskFrom, from, maskTo, to) <- (zip4 layoutUsShift layoutUsKey layoutDvorakShift layoutDvorakKey)]
+               (maskFrom, from, maskTo, to) <- zip4 layoutUsShift layoutUsKey layoutDvorakShift layoutDvorakKey]
   where
 
     layoutUs    = map (fromIntegral . fromEnum) "`1234567890-=qwertyuiop[]\\asdfghjkl;'zxcvbnm,./~!@#$%^&*()_+QWERTYUIOP{}|ASDFGHJKL:\"ZXCVBNM<>?"  :: [KeySym]
@@ -149,8 +148,6 @@ dvorakProgrammerKeyRemap =
 
     layoutDvorakShift = map getShift layoutDvorak
     layoutDvorakKey   = map getKey layoutDvorak
-    getKey  char = let Just index = elemIndex char layoutUs
-                    in layoutUsKey !! index
-    getShift char = let Just index = elemIndex char layoutUs
-                    in layoutUsShift !! index
+    getKey   char = fromJust $ (layoutUsKey   !?) =<< elemIndex char layoutUs
+    getShift char = fromJust $ (layoutUsShift !?) =<< elemIndex char layoutUs
     charToMask char = if [char] == "0" then 0 else shiftMask

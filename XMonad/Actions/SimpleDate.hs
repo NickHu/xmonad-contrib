@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.SimpleDate
+-- Description :  An example external contrib module for XMonad.
 -- Copyright   :  (c) Don Stewart 2007
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -23,7 +24,7 @@ import XMonad.Core
 import XMonad.Util.Run
 
 -- $usage
--- To use, import this module into @~\/.xmonad\/xmonad.hs@:
+-- To use, import this module into @xmonad.hs@:
 --
 -- >     import XMonad.Actions.SimpleDate
 --
@@ -34,7 +35,7 @@ import XMonad.Util.Run
 -- In this example, a popup date menu will now be bound to @mod-d@.
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 date :: X ()
 date = unsafeSpawn "(date; sleep 10) | dzen2"

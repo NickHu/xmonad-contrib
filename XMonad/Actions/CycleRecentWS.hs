@@ -1,6 +1,11 @@
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE MultiWayIf #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.CycleRecentWS
+-- Description :  Cycle through most recently used workspaces.
 -- Copyright   :  (c) Michal Janeczek <janeczek@gmail.com>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -24,21 +29,32 @@ module XMonad.Actions.CycleRecentWS (
                                 toggleRecentWS,
                                 toggleRecentNonEmptyWS,
                                 toggleWindowSets,
-                                recentWS
+                                recentWS,
+
+#ifdef TESTING
+                                unView,
+#endif
 ) where
 
+import XMonad.Actions.Repeatable (repeatableSt)
+
 import XMonad hiding (workspaces)
-import XMonad.StackSet hiding (filter)
+import XMonad.Prelude (void, when)
+import XMonad.StackSet hiding (filter, modify)
+
+import Control.Arrow ((&&&))
+import Data.Function (on)
+import Control.Monad.State (lift)
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@ file:
+-- You can use this module with the following in your @xmonad.hs@ file:
 --
 -- > import XMonad.Actions.CycleRecentWS
 -- >
 -- >   , ((modm, xK_Tab), cycleRecentWS [xK_Alt_L] xK_Tab xK_grave)
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 -- | Cycle through most recent workspaces with repeated presses of a key, while
 --   a modifier key is held down. The recency of workspaces previewed while browsing
@@ -76,56 +92,67 @@ toggleRecentNonEmptyWS :: X ()
 toggleRecentNonEmptyWS = toggleWindowSets $ recentWS (not . null . stack)
 
 
--- | Given a predicate p and the current WindowSet w, create a list of recent WindowSets,
--- most recent first, where the focused workspace satisfies p.
+-- | Given a predicate @p@ and the current 'WindowSet' @w@, create a
+-- list of workspaces to choose from. They are ordered by recency and
+-- have to satisfy @p@.
 recentWS :: (WindowSpace -> Bool) -- ^ A workspace predicate.
          -> WindowSet             -- ^ The current WindowSet
-         -> [WindowSet]
-recentWS p w = map (`view` w) recentTags
- where recentTags = map tag
-                  $ filter p
-                  $ map workspace (visible w)
-                    ++ hidden w
-                    ++ [workspace (current w)]
+         -> [WorkspaceId]
+recentWS p w = map tag
+             $ filter p
+             $ map workspace (visible w)
+               ++ hidden w
+               ++ [workspace (current w)]
 
-
-cycref :: [a] -> Int -> a
-cycref l i = l !! (i `mod` length l)
-
--- | Cycle through a finite list of WindowSets with repeated presses of a key, while
+-- | Cycle through a finite list of workspaces with repeated presses of a key, while
 --   a modifier key is held down. For best effects use the same modkey+key combination
 --   as the one used to invoke this action.
-cycleWindowSets :: (WindowSet -> [WindowSet]) -- ^ A function used to create a list of WindowSets to choose from
-                -> [KeySym]                   -- ^ A list of modifier keys used when invoking this action.
-                                              --   As soon as one of them is released, the final WindowSet is chosen and the action exits.
-                -> KeySym                     -- ^ Key used to preview next WindowSet from the list of generated options
-                -> KeySym                     -- ^ Key used to preview previous WindowSet from the list of generated options.
-                                              --   If it's the same as nextOption key, it is effectively ignored.
+cycleWindowSets :: (WindowSet -> [WorkspaceId]) -- ^ A function used to create a list of workspaces to choose from
+                -> [KeySym]                     -- ^ A list of modifier keys used when invoking this action.
+                                                --   As soon as one of them is released, the final workspace is chosen and the action exits.
+                -> KeySym                       -- ^ Key used to preview next workspace from the list of generated options
+                -> KeySym                       -- ^ Key used to preview previous workspace from the list of generated options.
+                                                --   If it's the same as nextOption key, it is effectively ignored.
                 -> X ()
 cycleWindowSets genOptions mods keyNext keyPrev = do
-  options <- gets $ genOptions . windowset
-  XConf {theRoot = root, display = d} <- ask
-  let event = allocaXEvent $ \p -> do
-                maskEvent d (keyPressMask .|. keyReleaseMask) p
-                KeyEvent {ev_event_type = t, ev_keycode = c} <- getEvent p
-                s <- keycodeToKeysym d c 0
-                return (t, s)
-  let setOption n = do windows $ const $ options `cycref` n
-                       (t, s) <- io event
-                       case () of
-                         () | t == keyPress   && s == keyNext  -> setOption (n+1)
-                            | t == keyPress   && s == keyPrev  -> setOption (n-1)
-                            | t == keyRelease && s `elem` mods -> return ()
-                            | otherwise                        -> setOption n
-  io $ grabKeyboard d root False grabModeAsync grabModeAsync currentTime
-  setOption 0
-  io $ ungrabKeyboard d currentTime
+  (options, unView') <- gets $ (genOptions &&& unView) . windowset
+  let
+    preview = do
+      i <- get
+      lift $ windows (view (options !! (i `mod` n)) . unView')
+      where n = length options
+  void . repeatableSt (-1) mods keyNext $ \t s -> when (t == keyPress) $ if
+    | s == keyNext -> modify succ >> preview
+    | s == keyPrev -> modify pred >> preview
+    | otherwise    -> pure ()
 
+-- | Given an old and a new 'WindowSet', which is __exactly__ one
+-- 'view' away from the old one, restore the workspace order of the
+-- former inside of the latter.  This respects any new state that the
+-- new 'WindowSet' may have accumulated.
+unView :: forall i l a s sd. (Eq i, Eq s)
+       => StackSet i l a s sd -> StackSet i l a s sd -> StackSet i l a s sd
+unView w0 w1 = fixOrderH . fixOrderV . view' (currentTag w0) $ w1
+ where
+  view' = if screen (current w0) == screen (current w1) then greedyView else view
+  fixOrderV w | v : vs <- visible w = w{ visible = insertAt (pfxV (visible w0) vs) v vs }
+              | otherwise = w
+  fixOrderH w | h : hs <- hidden w = w{ hidden = insertAt (pfxH (hidden w0) hs) h hs }
+              | otherwise = w
+  pfxV = commonPrefix `on` fmap (tag . workspace)
+  pfxH = commonPrefix `on` fmap tag
 
--- | Switch to the first of a finite list of WindowSets.
-toggleWindowSets :: (WindowSet -> [WindowSet]) -> X ()
+  insertAt :: Int -> x -> [x] -> [x]
+  insertAt n x xs = let (l, r) = splitAt n xs in l ++ [x] ++ r
+
+  commonPrefix :: Eq x => [x] -> [x] -> Int
+  commonPrefix a b = length $ takeWhile id $ zipWith (==) a b
+
+-- | Given some function that generates a list of workspaces from a
+-- given 'WindowSet', switch to the first generated workspace.
+toggleWindowSets :: (WindowSet -> [WorkspaceId]) -> X ()
 toggleWindowSets genOptions = do
   options <- gets $ genOptions . windowset
   case options of
     []  -> return ()
-    o:_ -> windows (const o)
+    o:_ -> windows (view o)

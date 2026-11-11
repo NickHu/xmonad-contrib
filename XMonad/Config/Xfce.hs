@@ -3,6 +3,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Config.Xfce
+-- Description  : Config for integrating xmonad with Xfce.
 -- Copyright    : (c) Ivan Miljenovic <Ivan.Miljenovic@gmail.com>
 -- License      : BSD
 --
@@ -26,7 +27,7 @@ import XMonad.Config.Desktop
 import qualified Data.Map as M
 
 -- $usage
--- To use this module, start with the following @~\/.xmonad\/xmonad.hs@:
+-- To use this module, start with the following @xmonad.hs@:
 --
 -- > import XMonad
 -- > import XMonad.Config.Xfce
@@ -37,9 +38,9 @@ import qualified Data.Map as M
 
 xfceConfig = desktopConfig
     { terminal = "xfce4-terminal"
-    , keys     = xfceKeys <+> keys desktopConfig }
+    , keys     = xfceKeys <> keys desktopConfig }
 
-xfceKeys (XConfig {modMask = modm}) = M.fromList $
+xfceKeys XConfig{modMask = modm} = M.fromList
     [ ((modm,               xK_p), spawn "xfrun4")
     , ((modm .|. shiftMask, xK_p), spawn "xfce4-appfinder")
     , ((modm .|. shiftMask, xK_q), spawn "xfce4-session-logout")

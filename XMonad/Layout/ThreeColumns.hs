@@ -3,6 +3,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.ThreeColumns
+-- Description :  A layout similar to @Tall@, but with three columns.
 -- Copyright   :  (c) Kai Grossjohann <kai@emptydomain.de>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -25,14 +26,13 @@ module XMonad.Layout.ThreeColumns (
                              ) where
 
 import XMonad
+import XMonad.Prelude
 import qualified XMonad.StackSet as W
 
 import Data.Ratio
 
-import Control.Monad
-
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.ThreeColumns
 --
@@ -46,18 +46,18 @@ import Control.Monad
 -- resizing and the third argument specifies the initial size of the columns.
 -- A positive size designates the fraction of the screen that the main window
 -- should occupy, but if the size is negative the absolute value designates the
--- fraction a slave column should occupy. If both slave columns are visible,
+-- fraction a stack column should occupy. If both stack columns are visible,
 -- they always occupy the same amount of space.
 --
--- The ThreeColMid variant places the main window between the slave columns.
+-- The ThreeColMid variant places the main window between the stack columns.
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 
 -- $screenshot
--- <<http://server.c-otto.de/xmonad/ThreeColumnsMiddle.png>>
+-- <<https://user-images.githubusercontent.com/50166980/156938482-ac38fdd7-eb94-4371-801b-e191cdb9a4ba.png>>
 
 -- | Arguments are nmaster, delta, fraction
 data ThreeCol a = ThreeColMid { threeColNMaster :: !Int, threeColDelta :: !Rational, threeColFrac :: !Rational}
@@ -89,9 +89,9 @@ tile3 middle f r nmaster n
     | otherwise = splitVertically nmaster r1 ++ splitVertically nslave1 r2 ++ splitVertically nslave2 r3
         where (r1, r2, r3) = split3HorizontallyBy middle (if f<0 then 1+2*f else f) r
               (s1, s2) = splitHorizontallyBy (if f<0 then 1+f else f) r
-              nslave = (n - nmaster)
+              nslave = n - nmaster
               nslave1 = ceiling (nslave % 2)
-              nslave2 = (n - nmaster - nslave1)
+              nslave2 = n - nmaster - nslave1
 
 split3HorizontallyBy :: Bool -> Rational -> Rectangle -> (Rectangle, Rectangle, Rectangle)
 split3HorizontallyBy middle f (Rectangle sx sy sw sh) =

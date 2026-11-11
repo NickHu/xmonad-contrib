@@ -3,6 +3,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.Stack
+-- Description :  Utility functions for manipulating @Maybe Stack@s.
 -- Copyright   :  Quentin Moser <moserq@gmail.com>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -26,6 +27,7 @@ module XMonad.Util.Stack ( -- * Usage
                          , toIndex
                          , fromTags
                          , toTags
+                         , zipperFocusedAtFirstOf
 
                            -- * 'Zipper' manipulation functions
                            -- ** Insertion, movement
@@ -80,10 +82,7 @@ module XMonad.Util.Stack ( -- * Usage
                          ) where
 
 import qualified XMonad.StackSet as W
-import Control.Applicative ((<|>))
-import Control.Monad (guard)
-import Data.List (sortBy)
-
+import XMonad.Prelude (guard, sortBy, (!?), (<|>))
 
 
 type Zipper a = Maybe (W.Stack a)
@@ -125,6 +124,18 @@ toTags Nothing = []
 toTags (Just s) = map Left (reverse . W.up $ s) ++ [Right . W.focus $ s]
                   ++ map Left (W.down s)
 
+-- | @differentiate zs xs@ takes the first @z@ from @z2 that also belongs to
+-- @xs@ and turns @xs@ into a stack with @z@ being the current element. Acts
+-- as 'XMonad.StackSet.differentiate' if @zs@ and @xs@ don't intersect.
+zipperFocusedAtFirstOf :: Eq q => [q] -> [q] -> Zipper q
+zipperFocusedAtFirstOf []       xs = W.differentiate xs
+zipperFocusedAtFirstOf (z : zs) xs
+  | z `elem` xs = Just $
+        W.Stack { W.focus = z
+                , W.up    = reverse $ takeWhile (/= z) xs
+                , W.down  = drop 1  $ dropWhile (/= z) xs
+                }
+  | otherwise = zipperFocusedAtFirstOf zs xs
 
 -- * Zipper functions
 
@@ -164,20 +175,20 @@ focusUpZ :: Zipper a -> Zipper a
 focusUpZ Nothing = Nothing
 focusUpZ (Just s) | u:up <- W.up s = Just $ W.Stack u up (W.focus s:W.down s)
 focusUpZ (Just s) | null $ W.down s = Just s
-focusUpZ (Just (W.Stack f _ down)) = Just $ W.Stack (last down) (reverse (init down) ++ [f]) []
+focusUpZ (Just (W.Stack f _ down)) = Just $ W.Stack (last down) (drop 1 (reverse down) ++ [f]) []
 
 -- | Move the focus to the next element
 focusDownZ :: Zipper a -> Zipper a
 focusDownZ Nothing = Nothing
 focusDownZ (Just s) | d:down <- W.down s = Just $ W.Stack d (W.focus s:W.up s) down
 focusDownZ (Just s) | null $ W.up s = Just s
-focusDownZ (Just (W.Stack f up _)) = Just $ W.Stack (last up) [] (reverse (init up) ++ [f])
+focusDownZ (Just (W.Stack f up _)) = Just $ W.Stack (last up) [] (drop 1 (reverse up) ++ [f])
 
 -- | Move the focus to the first element
 focusMasterZ :: Zipper a -> Zipper a
 focusMasterZ Nothing = Nothing
 focusMasterZ (Just (W.Stack f up down)) | not $ null up
-    = Just $ W.Stack (last up) [] (reverse (init up) ++ [f] ++ down)
+    = Just $ W.Stack (last up) [] (drop 1 (reverse up) ++ [f] ++ down)
 focusMasterZ (Just s) = Just s
 
 -- | Refocus a @Stack a@ on an element satisfying the predicate, or fail to
@@ -221,7 +232,7 @@ sortByZ f = fromTags . sortBy (adapt f) . toTags
 -- | Map a function over a stack. The boolean argument indcates whether
 -- the current element is the focused one
 mapZ :: (Bool -> a -> b) -> Zipper a -> Zipper b
-mapZ f as = fromTags . map (mapE f) . toTags $ as
+mapZ f = fromTags . map (mapE f) . toTags
 
 -- | 'mapZ' without the 'Bool' argument
 mapZ_ :: (a -> b) -> Zipper a -> Zipper b
@@ -286,7 +297,7 @@ deleteFocusedZ = filterZ (\b _ -> not b)
 -- | Delete the ith element
 deleteIndexZ :: Int -> Zipper a -> Zipper a
 deleteIndexZ i z = let numbered = (fromTags . zipWith number [0..] . toTags) z
-                       number j ea = mapE (\_ a -> (j,a)) ea
+                       number j = mapE (\_ a -> (j,a))
                    in mapZ_ snd $ filterZ_ ((/=i) . fst) numbered
 
 -- ** Folds
@@ -319,7 +330,7 @@ foldlZ_ = foldlZ . const
 
 -- | Find whether an element is present in a stack.
 elemZ :: Eq a => a -> Zipper a -> Bool
-elemZ a as = foldlZ_ step False as
+elemZ a = foldlZ_ step False
     where step True _ = True
           step False a' = a' == a
 
@@ -328,9 +339,8 @@ elemZ a as = foldlZ_ step False as
 
 -- | Safe version of '!!'
 getI :: Int -> [a] -> Maybe a
-getI _ [] = Nothing
-getI 0 (a:_) = Just a
-getI i (_:as) = getI (i-1) as
+getI i xs = xs !? i
+{-# DEPRECATED getI "Use XMonad.Prelude.(!?) instead." #-}
 
 -- | Map a function across both 'Left's and 'Right's.
 -- The 'Bool' argument is 'True' in a 'Right', 'False'

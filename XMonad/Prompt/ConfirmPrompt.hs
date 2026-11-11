@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Prompt.ConfirmPrompt
+-- Description :  A prompt for setting up simple confirmation prompts for keybindings.
 -- Copyright   :  (C) 2015 Antoine Beaupré
 -- License     :  BSD3
 --
@@ -40,7 +41,7 @@ This should be used something like this:
 -}
 
 {- | Customized 'XPrompt' prompt that will ask to confirm the given string -}
-data EnterPrompt = EnterPrompt String
+newtype EnterPrompt = EnterPrompt String
 instance XPrompt EnterPrompt where
     showXPrompt (EnterPrompt n) = "Confirm " ++ n ++ " (esc/ENTER)"
 

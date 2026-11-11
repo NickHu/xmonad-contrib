@@ -1,7 +1,12 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, DeriveDataTypeable, PatternGuards #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PatternGuards #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Mosaic
+-- Description :  Give each window a specified amount of screen space relative to the others.
 -- Copyright   :  (c) 2009 Adam Vogt, 2007 James Webb
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -28,20 +33,15 @@ module XMonad.Layout.Mosaic (
 
 import Prelude hiding (sum)
 
-import XMonad(Typeable,
-              LayoutClass(doLayout, handleMessage, pureMessage, description),
+import XMonad(LayoutClass(doLayout, handleMessage, pureMessage, description),
               Message, X, fromMessage, withWindowSet, Resize(..),
               splitHorizontallyBy, splitVerticallyBy, sendMessage, Rectangle)
+import XMonad.Prelude (mplus, on, sortBy, sum)
 import qualified XMonad.StackSet as W
 import Control.Arrow(second, first)
-import Control.Monad(mplus)
-import Data.Foldable(sum)
-import Data.Function(on)
-import Data.List(sortBy)
-
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.Mosaic
 --
@@ -62,16 +62,15 @@ import Data.List(sortBy)
 --
 --  > , ((modm, xK_r), sendMessage Reset)
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 data Aspect
     = Taller
     | Wider
     | Reset
     | SlopeMod ([Rational] -> [Rational])
-    deriving (Typeable)
 
 instance Message Aspect
 
@@ -116,7 +115,7 @@ instance LayoutClass Mosaic a where
         nextIx (ov,ix,mix)
                 | mix <= 0 || ov = fromIntegral $ nls `div` 2
                 | otherwise = max 0 $ (*fi (pred nls)) $ min 1 $ ix / fi mix
-        rect = rects !! maybe (nls `div` 2) round (nextIx <$> state)
+        rect = rects !! maybe (nls `div` 2) (round . nextIx) state
         state' = fmap (\x@(ov,_,_) -> (ov,nextIx x,pred nls)) state
                     `mplus` Just (True,fromIntegral nls / 2,pred nls)
         ss' = maybe ss (const ss `either` const ssExt) $ zipRemain ss ssExt
@@ -184,25 +183,15 @@ normalize :: Fractional a => [a] -> [a]
 normalize x = let s = sum x in map (/s) x
 
 data Tree a = Branch (Tree a) (Tree a) | Leaf a | Empty
+  deriving (Functor, Show, Foldable)
 
-instance Foldable Tree where
-   foldMap _f Empty = mempty
-   foldMap f (Leaf x) = f x
-   foldMap f (Branch l r) = foldMap f l `mappend` foldMap f r
-
-instance Functor Tree where
-   fmap f (Leaf x) = Leaf $ f x
-   fmap f (Branch l r) = Branch (fmap f l) (fmap f r)
-   fmap _ Empty = Empty
+instance Semigroup (Tree a) where
+    Empty <> x = x
+    x <> Empty = x
+    x <> y = Branch x y
 
 instance Monoid (Tree a) where
     mempty = Empty
-    mappend Empty x = x
-    mappend x Empty = x
-    mappend x y = Branch x y
-
-instance Semigroup (Tree a) where
-    (<>) = mappend
 
 makeTree ::  (Num a1, Ord a1) => (a -> a1) -> [a] -> Tree a
 makeTree _ [] = Empty

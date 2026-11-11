@@ -2,6 +2,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Hooks.WindowSwallowing
+-- Description :  Temporarily hide parent windows when opening other programs.
 -- Copyright   :  (c) 2020 Leon Kowarschick
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -18,9 +19,6 @@
 -- window, and allows you "swallow" that parent window for the time the new
 -- window is running.
 --
--- __NOTE__: This module depends on @pstree@ to analyze the process hierarchy, so make
--- sure that is on your @$PATH@.
---
 -- __NOTE__ that this does not always work perfectly:
 --
 -- - Because window swallowing needs to check the process hierarchy, it requires
@@ -35,26 +33,28 @@
 --   by looking at the window. This requires the @_NET_WM_PID@ X-property to be set.
 --   If any application you want to use this with does not provide the @_NET_WM_PID@,
 --   there is not much you can do except for reaching out to the author of that
---   application and asking them to set that property.
+--   application and asking them to set that property. Additionally,
+--   applications running in their own PID namespace, such as those in
+--   Flatpak, can't set a correct @_NET_WM_PID@ even if they wanted to.
 -----------------------------------------------------------------------------
 module XMonad.Hooks.WindowSwallowing
   ( -- * Usage
     -- $usage
-    swallowEventHook
+    swallowEventHook, swallowEventHookSub
   )
 where
 import           XMonad
+import           XMonad.Prelude
 import qualified XMonad.StackSet               as W
+import           XMonad.Layout.SubLayouts
 import qualified XMonad.Util.ExtensibleState   as XS
 import           XMonad.Util.WindowProperties
-import           XMonad.Util.Run                ( runProcessWithInput )
-import           Data.Semigroup                 ( All(..) )
+import           XMonad.Util.Process            ( getPPIDChain )
 import qualified Data.Map.Strict               as M
-import           Data.List                      ( isInfixOf )
-import           Control.Monad                  ( when )
+import           System.Posix.Types             ( ProcessID )
 
 -- $usage
--- You can use this module by including  the following in your @~\/.xmonad/xmonad.hs@:
+-- You can use this module by including  the following in your @xmonad.hs@:
 --
 -- > import XMonad.Hooks.WindowSwallowing
 --
@@ -62,9 +62,57 @@ import           Control.Monad                  ( when )
 --
 -- > myHandleEventHook = swallowEventHook (className =? "Alacritty" <||> className =? "Termite") (return True)
 --
+-- The variant 'swallowEventHookSub' can be used if a layout from "XMonad.Layout.SubLayouts" is used;
+-- instead of swallowing the window it will merge the child window with the parent. (this does not work with floating windows)
+--
 -- For more information on editing your handleEventHook and key bindings,
--- see "XMonad.Doc.Extending".
+-- see <https://xmonad.org/TUTORIAL.html the tutorial> and "XMonad.Doc.Extending".
 
+-- | Run @action@ iff both parent- and child queries match and the child
+-- is a child by PID.
+--
+-- A 'MapRequestEvent' is called right before a window gets opened. We
+-- intercept that call to possibly open the window ourselves, swapping
+-- out it's parent processes window for the new window in the stack.
+handleMapRequestEvent :: Query Bool -> Query Bool -> Window -> (Window -> X ()) -> X ()
+handleMapRequestEvent parentQ childQ childWindow action =
+  -- For a window to be opened from within another window, that other window
+  -- must be focused. Thus the parent window that would be swallowed has to be
+  -- the currently focused window.
+  withFocused $ \parentWindow -> do
+    -- First verify that both windows match the given queries
+    parentMatches <- runQuery parentQ parentWindow
+    childMatches  <- runQuery childQ childWindow
+    when (parentMatches && childMatches) $ do
+      -- read the windows _NET_WM_PID properties
+      childWindowPid  <- getProp32s "_NET_WM_PID" childWindow
+      parentWindowPid <- getProp32s "_NET_WM_PID" parentWindow
+      case (parentWindowPid, childWindowPid) of
+        (Just (parentPid : _), Just (childPid : _)) -> do
+          -- check if the new window is a child process of the last focused window
+          -- using the process ids.
+          isChild <- liftIO $ fi childPid `isChildOf` fi parentPid
+          when isChild $ do
+            action parentWindow
+        _ -> return ()
+      return ()
+
+-- | handleEventHook that will merge child windows via
+-- "XMonad.Layout.SubLayouts" when they are opened from another window.
+swallowEventHookSub
+  :: Query Bool -- ^ query the parent window has to match for window swallowing to occur.
+                --   Set this to @return True@ to run swallowing for every parent.
+  -> Query Bool -- ^ query the child window has to match for window swallowing to occur.
+                --   Set this to @return True@ to run swallowing for every child
+  -> Event      -- ^ The event to handle.
+  -> X All
+swallowEventHookSub parentQ childQ event =
+  All True <$ case event of
+    MapRequestEvent{ev_window=childWindow} ->
+      handleMapRequestEvent parentQ childQ childWindow $ \parentWindow -> do
+        manage childWindow
+        sendMessage (Merge parentWindow childWindow)
+    _ -> pure ()
 
 -- | handleEventHook that will swallow child windows when they are
 -- opened from another window.
@@ -75,41 +123,25 @@ swallowEventHook
                 --   Set this to @return True@ to run swallowing for every child
   -> Event      -- ^ The event to handle.
   -> X All
-swallowEventHook parentQueries childQueries event = do
+swallowEventHook parentQ childQ event = do
   case event of
-    -- This is called right before a window gets opened. We intercept that
-    -- call to possibly open the window ourselves, swapping out
-    -- it's parent processes window for the new window in the stack.
-    MapRequestEvent { ev_window = childWindow } ->
-      -- For a window to be opened from within another window, that other window
-      -- must be focused. Thus the parent window that would be swallowed has to be
-      -- the currently focused window.
-      withFocused $ \parentWindow -> do
-        -- First verify that both windows match the given queries
-        parentMatches <- runQuery parentQueries parentWindow
-        childMatches  <- runQuery childQueries childWindow
-        when (parentMatches && childMatches) $ do
-          -- read the windows _NET_WM_PID properties
-          childWindowPid  <- getProp32s "_NET_WM_PID" childWindow
-          parentWindowPid <- getProp32s "_NET_WM_PID" parentWindow
-          case (parentWindowPid, childWindowPid) of
-            (Just (parentPid : _), Just (childPid : _)) -> do
-              -- check if the new window is a child process of the last focused window
-              -- using the process ids.
-              isChild <- liftIO $ fi childPid `isChildOf` fi parentPid
-              when isChild $ do
-                -- We set the newly opened window as the focused window, replacing the parent window.
-                -- If the parent window was floating, we transfer that data to the child,
-                -- such that it shows up at the same position, with the same dimensions.
-
-                windows
-                  ( W.modify' (\x -> x { W.focus = childWindow })
-                  . moveFloatingState parentWindow childWindow
-                  )
-                XS.modify (addSwallowedParent parentWindow childWindow)
-            _ -> return ()
-          return ()
-
+    MapRequestEvent{ev_window=childWindow} ->
+      handleMapRequestEvent parentQ childQ childWindow $ \parentWindow -> do
+        -- We set the newly opened window as the focused window, replacing the parent window.
+        -- If the parent window was floating, we transfer that data to the child,
+        -- such that it shows up at the same position, with the same dimensions.
+        --
+        -- As the child is manually inserted into the window set, xmonad's
+        -- default MapRequestEvent handler will consider it already managed
+        -- and skip running the user's manageHook, so we do that ourselves.
+        mh <- asks (manageHook . config)
+        g  <- appEndo <$> userCodeDef (Endo id) (runQuery mh childWindow)
+        windows
+          ( g
+          . W.modify' (\x -> x { W.focus = childWindow })
+          . moveFloatingState parentWindow childWindow
+          )
+        XS.modify (addSwallowedParent parentWindow childWindow)
 
     -- This is called in many circumstances, most notably for us:
     -- right before a window gets closed. We store the current
@@ -130,14 +162,19 @@ swallowEventHook parentQueries childQueries event = do
         maybeOldStack        <- XS.gets stackBeforeWindowClosing
         oldFloating          <- XS.gets floatingBeforeClosing
         case (maybeSwallowedParent, maybeOldStack) of
+          -- If there actually is a corresponding swallowed parent window for this window,
+          -- we will try to restore it.
+          -- Because there are some cases where the stack-state is not stored correctly in the ConfigureEvent hook,
+          -- we have to first check if the stack-state is valid.
+          -- If it is, we can restore the parent exactly where the child window was before being closed.
+          -- If the stored stack-state is invalid however, we still restore the window
+          -- by just inserting it as the focused window in the stack.
+          --
+          -- After restoring, we remove the information about the swallowing from the state.
+          (Just parent, Nothing) -> do
+            windows (insertIntoStack parent)
+            deleteState childWindow
           (Just parent, Just oldStack) -> do
-            -- If there actually is a corresponding swallowed parent window for this window,
-            -- we will try to restore it.
-            -- because there are some cases where the stack-state is not stored correctly in the ConfigureEvent hook,
-            -- we have to first check if the stack-state is valid.
-            -- if it is, we can restore the parent exactly where the child window was before being closed
-            -- if the stored stack-state is invalid however, we still restore the window
-            -- by just inserting it as the focused window in the stack.
             stackStoredCorrectly <- do
               curStack <- withWindowSet (return . currentStack)
               let oldLen = length (W.integrate oldStack)
@@ -153,21 +190,21 @@ swallowEventHook parentQueries childQueries event = do
                     $ ws { W.floating = oldFloating }
                 )
               else windows (insertIntoStack parent)
-            -- after restoring, we remove the information about the swallowing from the state.
-            XS.modify $ removeSwallowed childWindow
-            XS.modify $ setStackBeforeWindowClosing Nothing
+            deleteState childWindow
           _ -> return ()
-        return ()
     _ -> return ()
   return $ All True
-
+ where
+  deleteState :: Window -> X ()
+  deleteState childWindow = do
+    XS.modify $ removeSwallowed childWindow
+    XS.modify $ setStackBeforeWindowClosing Nothing
 
 -- | insert a window as focused into the current stack, moving the previously focused window down the stack
 insertIntoStack :: a -> W.StackSet i l a sid sd -> W.StackSet i l a sid sd
 insertIntoStack win = W.modify
   (Just $ W.Stack win [] [])
   (\s -> Just $ s { W.focus = win, W.down = W.focus s : W.down s })
-
 
 -- | run a pure transformation on the Stack of the currently focused workspace.
 updateCurrentStack
@@ -193,24 +230,20 @@ moveFloatingState from to ws = ws
                                        (M.lookup from (W.floating ws))
   }
 
-
 -- | check if a given process is a child of another process. This depends on "pstree" being in the PATH
 -- NOTE: this does not work if the child process does any kind of process-sharing.
 isChildOf
-  :: Int -- ^ child PID
-  -> Int -- ^ parent PID
+  :: ProcessID -- ^ child PID
+  -> ProcessID -- ^ parent PID
   -> IO Bool
-isChildOf child parent = do
-  output <- runProcessWithInput "pstree" ["-T", "-p", show parent] ""
-  return $ any (show child `isInfixOf`) $ lines output
-
+isChildOf child parent = (parent `elem`) <$> getPPIDChain child
 
 data SwallowingState =
   SwallowingState
     { currentlySwallowed       :: M.Map Window Window         -- ^ mapping from child window window to the currently swallowed parent window
     , stackBeforeWindowClosing :: Maybe (W.Stack Window)      -- ^ current stack state right before DestroyWindowEvent is sent
     , floatingBeforeClosing    :: M.Map Window W.RationalRect -- ^ floating map of the stackset right before DestroyWindowEvent is sent
-    } deriving (Typeable, Show)
+    } deriving (Show)
 
 getSwallowedParent :: Window -> SwallowingState -> Maybe Window
 getSwallowedParent win SwallowingState { currentlySwallowed } =
@@ -237,9 +270,3 @@ instance ExtensionClass SwallowingState where
                                  , stackBeforeWindowClosing = Nothing
                                  , floatingBeforeClosing    = mempty
                                  }
-
-
-fi :: (Integral a, Num b) => a -> b
-fi = fromIntegral
-
-

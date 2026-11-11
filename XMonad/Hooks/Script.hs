@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      : XMonad.Hooks.Script
+-- Description : Simple interface for running a ~\/.xmonad\/hooks script with the name of a hook.
 -- Copyright   : (c) Trevor Elliott <trevor@galois.com>
 -- License     : BSD3-style (see LICENSE)
 --
@@ -46,6 +47,6 @@ import XMonad
 -- | Execute a named script hook
 execScriptHook :: String -> X ()
 execScriptHook hook = do
-  xmonadDir <- getXMonadDir
+  xmonadDir <- asks (cfgDir . directories)
   let script = xmonadDir ++ "/hooks "
   spawn (script ++ hook)

@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.WorkspaceNames
+-- Description :  Persistently rename workspace and swap them along with their names.
 -- Copyright   :  (c) Tomas Janousek <tomi@nomi.cz>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -8,14 +9,12 @@
 -- Stability   :  experimental
 -- Portability :  unportable
 --
--- Provides bindings to rename workspaces, show these names in DynamicLog and
+-- Provides bindings to rename workspaces, show these names in a status bar and
 -- swap workspaces along with their names. These names survive restart.
 -- Together with "XMonad.Layout.WorkspaceDir" this provides for a fully
 -- dynamic topic space workflow.
 --
 -----------------------------------------------------------------------------
-
-{-# LANGUAGE DeriveDataTypeable #-}
 
 module XMonad.Actions.WorkspaceNames (
     -- * Usage
@@ -23,7 +22,6 @@ module XMonad.Actions.WorkspaceNames (
 
     -- * Workspace naming
     renameWorkspace,
-    workspaceNamesPP,
     getWorkspaceNames',
     getWorkspaceNames,
     getWorkspaceName,
@@ -39,29 +37,28 @@ module XMonad.Actions.WorkspaceNames (
     -- * Workspace prompt
     workspaceNamePrompt,
 
-    -- * EwmhDesktops integration
-    workspaceNamesListTransform
+    -- * StatusBar, EwmhDesktops integration
+    workspaceNamesPP,
+    workspaceNamesEwmh,
     ) where
 
 import XMonad
+import XMonad.Prelude (fromMaybe, isInfixOf, (<&>), (>=>))
 import qualified XMonad.StackSet as W
 import qualified XMonad.Util.ExtensibleState as XS
 
-import XMonad.Actions.CycleWS (findWorkspace, WSType(..), Direction1D(..))
+import XMonad.Actions.CycleWS (findWorkspace, WSType(..), Direction1D(..), anyWS)
 import qualified XMonad.Actions.SwapWorkspaces as Swap
-import XMonad.Hooks.DynamicLog (PP(..))
-import XMonad.Prompt (mkXPrompt, XPConfig)
+import XMonad.Hooks.StatusBar.PP (PP(..))
+import XMonad.Hooks.EwmhDesktops (addEwmhWorkspaceRename)
+import XMonad.Prompt (mkXPrompt, XPConfig, historyCompletionP)
 import XMonad.Prompt.Workspace (Wor(Wor))
 import XMonad.Util.WorkspaceCompare (getSortByIndex)
 
-import Control.Monad ((>=>))
-import Data.Functor ((<&>))
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe)
-import Data.List (isInfixOf)
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@ file:
+-- You can use this module with the following in your @xmonad.hs@ file:
 --
 -- > import XMonad.Actions.WorkspaceNames
 --
@@ -69,10 +66,17 @@ import Data.List (isInfixOf)
 --
 -- >   , ((modm .|. shiftMask, xK_r      ), renameWorkspace def)
 --
--- and apply workspaceNamesPP to your DynamicLog pretty-printer:
+-- and apply workspaceNamesPP to your pretty-printer:
 --
--- > myLogHook =
--- >     workspaceNamesPP xmobarPP >>= dynamicLogString >>= xmonadPropLog
+-- > myPP = workspaceNamesPP xmobarPP
+--
+-- Check "XMonad.Hooks.StatusBar" for more information on how to incorprate
+-- this into your status bar.
+--
+-- To expose workspace names to pagers and other EWMH clients, integrate this
+-- with "XMonad.Hooks.EwmhDesktops":
+--
+-- > main = xmonad $ … . workspaceNamesEwmh . ewmh . … $ def{…}
 --
 -- We also provide a modification of "XMonad.Actions.SwapWorkspaces"\'s
 -- functionality, which may be used this way:
@@ -84,13 +88,13 @@ import Data.List (isInfixOf)
 -- >     | (i, k) <- zip workspaces [xK_1 ..]]
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 
 
 -- | Workspace names container.
 newtype WorkspaceNames = WorkspaceNames (M.Map WorkspaceId String)
-    deriving (Typeable, Read, Show)
+    deriving (Read, Show)
 
 instance ExtensionClass WorkspaceNames where
     initialValue = WorkspaceNames M.empty
@@ -133,18 +137,15 @@ setCurrentWorkspaceName name = do
 
 -- | Prompt for a new name for the current workspace and set it.
 renameWorkspace :: XPConfig -> X ()
-renameWorkspace conf =
-    mkXPrompt pr conf (const (return [])) setCurrentWorkspaceName
-    where pr = Wor "Workspace name: "
-
--- | Modify "XMonad.Hooks.DynamicLog"\'s pretty-printing format to show
--- workspace names as well.
-workspaceNamesPP :: PP -> X PP
-workspaceNamesPP pp = getWorkspaceNames ":" <&> \ren -> pp{ ppRename = ppRename pp >=> ren }
+renameWorkspace conf = do
+    completion <- historyCompletionP conf (prompt ==)
+    mkXPrompt (Wor prompt) conf completion setCurrentWorkspaceName
+  where
+    prompt = "Workspace name: "
 
 -- | See 'XMonad.Actions.SwapWorkspaces.swapTo'. This is the same with names.
 swapTo :: Direction1D -> X ()
-swapTo dir = swapTo' dir AnyWS
+swapTo dir = swapTo' dir anyWS
 
 -- | Swap with the previous or next workspace of the given type.
 swapTo' :: Direction1D -> WSType -> X ()
@@ -164,7 +165,7 @@ swapNames w1 w2 = do
     WorkspaceNames m <- XS.get
     let getname w = fromMaybe "" $ M.lookup w m
         set w name m' = if null name then M.delete w m' else M.insert w name m'
-    XS.put $ WorkspaceNames $ set w1 (getname w2) $ set w2 (getname w1) $ m
+    XS.put $ WorkspaceNames $ set w1 (getname w2) $ set w2 (getname w1) m
 
 -- | Same behavior than 'XMonad.Prompt.Workspace.workspacePrompt' excepted it acts on the workspace name provided by this module.
 workspaceNamePrompt :: XPConfig -> (WorkspaceId -> X ()) -> X ()
@@ -177,14 +178,14 @@ workspaceNamePrompt conf job = do
               (job . toWsId pairs)
   where toWsId pairs name = fromMaybe "" (lookup name pairs)
         contains completions input =
-          return $ filter (Data.List.isInfixOf input) completions
+          return $ filter (isInfixOf input) completions
 
--- | Workspace list transformation for
--- 'XMonad.Hooks.EwmhDesktops.ewmhDesktopsLogHookCustom' that exposes
--- workspace names to pagers and other EWMH-aware clients.
---
--- Usage:
--- > logHook = (workspaceNamesListTransform >>= ewmhDesktopsLogHookCustom) <+> …
-workspaceNamesListTransform :: X ([WindowSpace] -> [WindowSpace])
-workspaceNamesListTransform =
-    getWorkspaceNames ":" <&> \names -> map $ \ws -> ws{ W.tag = names (W.tag ws) ws }
+-- | Modify 'XMonad.Hooks.StatusBar.PP.PP'\'s pretty-printing format to show
+-- workspace names as well.
+workspaceNamesPP :: PP -> X PP
+workspaceNamesPP pp = getWorkspaceNames ":" <&> \ren -> pp{ ppRename = ppRename pp >=> ren }
+
+-- | Tell "XMonad.Hooks.EwmhDesktops" to append workspace names to desktop
+-- names.
+workspaceNamesEwmh :: XConfig l -> XConfig l
+workspaceNamesEwmh = addEwmhWorkspaceRename $ getWorkspaceNames ":"

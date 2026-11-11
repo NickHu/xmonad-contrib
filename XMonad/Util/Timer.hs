@@ -1,6 +1,8 @@
+{-# LANGUAGE MultiWayIf #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.Timer
+-- Description :  A module for setting up timers.
 -- Copyright   :  (c) Andrea Rossato and David Roundy 2007
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -19,13 +21,14 @@ module XMonad.Util.Timer
     , TimerId
     ) where
 
-import XMonad
 import Control.Concurrent
 import Data.Unique
+import XMonad
+import XMonad.Prelude (listToMaybe)
 
 -- $usage
 -- This module can be used to setup a timer to handle deferred events.
--- See 'XMonad.Layout.ShowWName' for an usage example.
+-- See "XMonad.Layout.ShowWName" for an usage example.
 
 type TimerId = Int
 
@@ -49,10 +52,9 @@ startTimer s = io $ do
 -- | Given a 'TimerId' and an 'Event', run an action when the 'Event'
 -- has been sent by the timer specified by the 'TimerId'
 handleTimer :: TimerId -> Event -> X (Maybe a) -> X (Maybe a)
-handleTimer ti (ClientMessageEvent {ev_message_type = mt, ev_data = dt}) action = do
+handleTimer ti ClientMessageEvent{ev_message_type = mt, ev_data = dt} action = do
   d <- asks display
   a <- io $ internAtom d "XMONAD_TIMER" False
-  if mt == a && dt /= [] && fromIntegral (head dt) == ti
-     then action
-     else return Nothing
+  if | mt == a, Just dth <- listToMaybe dt, fromIntegral dth == ti -> action
+     | otherwise -> return Nothing
 handleTimer _ _ _ = return Nothing

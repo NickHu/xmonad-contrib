@@ -1,11 +1,13 @@
 #!/usr/bin/env runhaskell
 
+{-# LANGUAGE LambdaCase #-}
+
 -- Copyright Spencer Janssen <spencerjanssen@gmail.com>
 -- BSD3 (see LICENSE)
 --
 -- Reads from an X property on the root window and writes to standard output.
 --
--- May be used together with XMonad.Hooks.DynamicLog.xmonadPropLog and a
+-- May be used together with XMonad.Hooks.StatusBar.xmonadPropLog and a
 -- status bar that doesn't support reading from properties itself, such as
 -- dzen.
 --
@@ -29,7 +31,7 @@ main :: IO ()
 main = do
     hSetBuffering stdout LineBuffering
 
-    atom <- flip fmap getArgs $ \args -> case args of
+    atom <- flip fmap getArgs $ \case
         [a] -> a
         _   -> "_XMONAD_LOG"
 

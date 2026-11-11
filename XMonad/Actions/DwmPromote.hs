@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.DwmPromote
+-- Description :  DWM-like swap function for xmonad.
 -- Copyright   :  (c) Miikka Koskinen 2007
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -24,10 +25,13 @@ module XMonad.Actions.DwmPromote (
 
 import XMonad
 import XMonad.StackSet
+import XMonad.Prelude
+
+import qualified Data.List.NonEmpty as NE
 
 -- $usage
 --
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- >    import XMonad.Actions.DwmPromote
 --
@@ -36,7 +40,7 @@ import XMonad.StackSet
 -- >   , ((modm,               xK_Return), dwmpromote)
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 -- | Swap the focused window with the master window. If focus is in
 --   the master, swap it with the next window in the stack. Focus
@@ -44,6 +48,6 @@ import XMonad.StackSet
 dwmpromote :: X ()
 dwmpromote = windows $ modify' $
              \c -> case c of
-                   Stack _ [] []     -> c
-                   Stack t [] (x:rs) -> Stack x [] (t:rs)
-                   Stack t ls rs     -> Stack t [] (ys ++ x : rs) where (x:ys) = reverse ls
+                   Stack _ []     []     -> c
+                   Stack t []     (r:rs) -> Stack r [] (t:rs)
+                   Stack t (l:ls) rs     -> Stack t [] (ys ++ y : rs) where (y :| ys) = NE.reverse (l :| ls)

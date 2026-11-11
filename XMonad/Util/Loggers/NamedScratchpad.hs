@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.Loggers.NamedScratchpad
+-- Description :  A collection of Loggers for "XMonad.Util.NamedScratchpad".
 -- Copyright   :  (c) Brandon S Allbery <allbery.b@gmail.com>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -8,11 +9,9 @@
 -- Stability   :  unstable
 -- Portability :  unportable
 --
--- 'XMonad.Util.Loggers' for 'XMonad.Util.NamedScratchpad'
+-- "XMonad.Util.Loggers" for "XMonad.Util.NamedScratchpad"
 --
 -----------------------------------------------------------------------------
-
-{-# LANGUAGE DeriveDataTypeable #-}
 
 module XMonad.Util.Loggers.NamedScratchpad (-- * Usage
                                             -- $usage
@@ -28,9 +27,7 @@ import Graphics.X11.Xlib.Extras (Event(..))
 import XMonad.Util.Loggers (Logger)
 import XMonad.Util.NamedScratchpad (NamedScratchpad(..))
 import qualified XMonad.Util.ExtensibleState as XS
-import Data.Monoid (All(..))
-import Data.Char (chr)
-import Control.Monad (forM, foldM)
+import XMonad.Prelude (All (..), chr, foldM, forM)
 import qualified Data.IntMap as M
 import qualified XMonad.StackSet as W (allWindows)
 
@@ -38,7 +35,7 @@ import qualified XMonad.StackSet as W (allWindows)
 -- This is a set of 'Logger's for 'NamedScratchpad's.
 -- It provides a 'startupHook' and 'handleEventHook' to keep track of
 -- 'NamedScratchpad's, and several possible 'Logger's for use in
--- 'XMonad.Hooks.DynamicLog' 'ppExtras'.
+-- 'XMonad.Hooks.StatusBar.PP.ppExtras'.
 --
 -- You must add 'nspTrackStartup' to your 'startupHook' to initialize
 -- 'NamedScratchpad' tracking and to detect any currently running
@@ -53,16 +50,16 @@ import qualified XMonad.StackSet as W (allWindows)
 -- (This is difficult to change; "minimizing" by moving it back to 'NSP'
 -- is even harder.)
 -- I hide the 'NamedScratchpad's from the taskbar and use this to track
--- them instead (see 'XMonad.Util.NoTaskbar').
+-- them instead (see "XMonad.Util.NoTaskbar").
 
 -- The extension data for tracking NSP windows
-data NSPTrack = NSPTrack [Maybe Window] deriving Typeable
+newtype NSPTrack = NSPTrack [Maybe Window]
 instance ExtensionClass NSPTrack where
   initialValue = NSPTrack []
 
 -- | 'startupHook' to initialize scratchpad activation tracking
 --
--- > , startupHook = ... <+> nspTrackStartup scratchpads
+-- > , startupHook = ... <> nspTrackStartup scratchpads
 --
 -- If you kickstart the 'logHook', do it /after/ 'nspTrackStartup'!
 nspTrackStartup :: [NamedScratchpad] -> X ()
@@ -86,14 +83,14 @@ scratchpadWindow ns = foldM sp' Nothing (zip [0..] ns)
 
 -- | 'handleEventHook' to track scratchpad activation/deactivation
 --
--- > , handleEventHook = ... <+> nspTrackHook scratchpads
+-- > , handleEventHook = ... <> nspTrackHook scratchpads
 nspTrackHook :: [NamedScratchpad] -> Event -> X All
-nspTrackHook _ (DestroyWindowEvent {ev_window = w}) = do
+nspTrackHook _ DestroyWindowEvent{ev_window = w} = do
   XS.modify $ \(NSPTrack ws) -> NSPTrack $ map (\sw -> if sw == Just w then Nothing else sw) ws
   return (All True)
-nspTrackHook ns (ConfigureRequestEvent {ev_window = w}) = do
+nspTrackHook ns ConfigureRequestEvent{ev_window = w} = do
   NSPTrack ws <- XS.get
-  ws' <- forM (zip3 [0..] ws ns) $ \(_,w',NS _ _ q _) -> do
+  ws' <- forM (zip3 [0 :: Integer ..] ws ns) $ \(_,w',NS _ _ q _) -> do
     p <- runQuery q w
     return $ if p then Just w else w'
   XS.put $ NSPTrack ws'

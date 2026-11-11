@@ -1,7 +1,7 @@
-
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.CycleWorkspaceByScreen
+-- Description :  Cycle workspaces in a screen-aware fashion.
 -- Copyright   :  (c) 2017 Ivan Malison
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -23,39 +23,38 @@ module XMonad.Actions.CycleWorkspaceByScreen (
   , repeatableAction
   ) where
 
-import           Control.Monad
 import           Data.IORef
-import           Data.List
-import           Data.Maybe
-
-import           Graphics.X11.Xlib.Extras
 
 import           XMonad
+import           XMonad.Prelude
 import           XMonad.Hooks.WorkspaceHistory
+import           XMonad.Actions.Repeatable (repeatable)
 import qualified XMonad.StackSet as W
 
 -- $usage
--- This module must be used in conjuction with XMonad.Hooks.WorkspaceHistory
 --
--- To use, add something like the following to your keybindings
--- , ((mod4Mask,  xK_slash), cycleWorkspaceOnCurrentScreen [xK_Super_L] xK_slash xK_p)
+-- To use this module, first import it as well as
+-- "XMonad.Hooks.WorkspaceHistory":
+--
+-- > import XMonad.Hooks.WorkspaceHistory (workspaceHistoryHook)
+-- > import XMonad.Actions.CycleWorkspaceByScreen
+--
+-- Then add 'workspaceHistoryHook' to your @logHook@ like this:
+--
+-- > main :: IO ()
+-- > main = xmonad $ def
+-- >    { ...
+-- >    , logHook = workspaceHistoryHook >> ...
+-- >    }
+--
+-- Finally, define a new keybinding for cycling (seen) workspaces per
+-- screen:
+--
+-- > , ((mod4Mask, xK_slash), cycleWorkspaceOnCurrentScreen [xK_Super_L] xK_slash xK_p)
 
-repeatableAction :: [KeySym] -> (EventType -> KeySym -> X ()) -> X ()
-repeatableAction mods pressHandler = do
-  XConf {theRoot = root, display = d} <- ask
-  let getNextEvent = io $ allocaXEvent $ \p ->
-                 do
-                   maskEvent d (keyPressMask .|. keyReleaseMask) p
-                   KeyEvent {ev_event_type = t, ev_keycode = c} <- getEvent p
-                   s <- io $ keycodeToKeysym d c 0
-                   return (t, s)
-      handleEvent (t, s)
-        | t == keyRelease && s `elem` mods = return ()
-        | otherwise = (pressHandler t s) >> getNextEvent >>= handleEvent
-
-  io $ grabKeyboard d root False grabModeAsync grabModeAsync currentTime
-  getNextEvent >>= handleEvent
-  io $ ungrabKeyboard d currentTime
+{-# DEPRECATED repeatableAction "Use XMonad.Actions.Repeatable.repeatable" #-}
+repeatableAction :: [KeySym] -> KeySym -> (EventType -> KeySym -> X ()) -> X ()
+repeatableAction = repeatable
 
 handleKeyEvent :: EventType
                -> KeySym
@@ -74,7 +73,16 @@ runFirst :: [EventType -> KeySym -> Maybe (X ())] -> EventType -> KeySym -> X ()
 runFirst matchers eventType key =
   fromMaybe (return ()) $ join $ find isJust $ map (\fn -> fn eventType key) matchers
 
-cycleWorkspaceOnScreen :: ScreenId -> [KeySym] -> KeySym -> KeySym -> X ()
+-- | Like 'XMonad.Actions.CycleRecentWS.cycleRecentWS', but only cycle
+-- through the most recent workspaces on the given screen.
+cycleWorkspaceOnScreen
+  :: ScreenId -- ^ The screen to cycle on.
+  -> [KeySym] -- ^ A list of modifier keys used when invoking this
+              --   action; as soon as one of them is released, the final
+              --   switch is made.
+  -> KeySym   -- ^ Key used to switch to next workspace.
+  -> KeySym   -- ^ Key used to switch to previous workspace.
+  -> X ()
 cycleWorkspaceOnScreen screenId mods nextKey prevKey = workspaceHistoryTransaction $ do
   startingHistory <- workspaceHistoryByScreen
   currentWSIndex <- io $ newIORef 1
@@ -83,18 +91,19 @@ cycleWorkspaceOnScreen screenId mods nextKey prevKey = workspaceHistoryTransacti
         current <- readIORef currentWSIndex
         modifyIORef
           currentWSIndex
-          ((`mod` (length cycleWorkspaces)) . (+ increment))
+          ((`mod` length cycleWorkspaces) . (+ increment))
         return $ cycleWorkspaces !! current
-      focusIncrement i = (io $ getAndIncrementWS i) >>= (windows . W.greedyView)
+      focusIncrement i = io (getAndIncrementWS i) >>= (windows . W.greedyView)
 
-  focusIncrement 1 -- Do the first workspace cycle
-  repeatableAction mods $
+  repeatable mods nextKey $
     runFirst
       [ handleKeyEvent keyPress nextKey $ focusIncrement 1
       , handleKeyEvent keyPress prevKey $ focusIncrement (-1)
       ]
   return ()
 
+-- | Like 'cycleWorkspaceOnScreen', but supply the currently focused
+-- screen as the @screenId@.
 cycleWorkspaceOnCurrentScreen
   :: [KeySym] -> KeySym -> KeySym -> X ()
 cycleWorkspaceOnCurrentScreen mods n p =

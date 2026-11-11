@@ -1,8 +1,9 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, DeriveDataTypeable, TypeSynonymInstances, PatternGuards #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, PatternGuards #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Gaps
+-- Description :  Create manually-sized gaps along edges of the screen.
 -- Copyright   :  (c) 2008 Brent Yorgey
 -- License     :  BSD3
 --
@@ -35,17 +36,15 @@ module XMonad.Layout.Gaps (
                           weakModifyGaps, modifyGap, setGaps, setGap
                           ) where
 
+import XMonad.Prelude (delete, fi)
 import XMonad.Core
 import Graphics.X11 (Rectangle(..))
 
 import XMonad.Layout.LayoutModifier
 import XMonad.Util.Types (Direction2D(..))
-import XMonad.Util.XUtils (fi)
-
-import Data.List (delete)
 
 -- $usage
--- You can use this module by importing it into your @~\/.xmonad\/xmonad.hs@ file:
+-- You can use this module by importing it into your @xmonad.hs@ file:
 --
 -- > import XMonad.Layout.Gaps
 --
@@ -92,6 +91,10 @@ import Data.List (delete)
 --
 -- To configure gaps differently per-screen, use
 -- "XMonad.Layout.PerScreen" (coming soon).
+--
+-- __Warning__: If you also use the 'avoidStruts' layout modifier, it
+-- must come /before/ any of these modifiers. See the documentation of
+-- 'avoidStruts' for details.
 
 -- | A manual gap configuration.  Each side of the screen on which a
 --   gap is enabled is paired with a size in pixels.
@@ -109,7 +112,6 @@ data GapMessage = ToggleGaps              -- ^ Toggle all gaps.
                 | IncGap !Int !Direction2D    -- ^ Increase a gap by a certain number of pixels.
                 | DecGap !Int !Direction2D    -- ^ Decrease a gap.
                 | ModifyGaps (GapSpec -> GapSpec) -- ^ Modify arbitrarily.
-  deriving (Typeable)
 
 instance Message GapMessage
 
@@ -179,7 +181,7 @@ toggleGaps _    _  = []
 
 toggleGap :: GapSpec -> [Direction2D] -> Direction2D -> [Direction2D]
 toggleGap conf cur d | d `elem` cur            = delete d cur
-                     | d `elem` (map fst conf) = d:cur
+                     | d `elem` map fst conf = d:cur
                      | otherwise               = cur
 
 -- | Add togglable manual gaps to a layout.

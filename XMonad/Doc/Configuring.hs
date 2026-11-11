@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Doc.Configuring
+-- Description :  Brief xmonad tutorial.
 -- Copyright   :  (C) 2007 Don Stewart and Andrea Rossato
 -- License     :  BSD3
 --
@@ -8,11 +9,14 @@
 -- Stability   :  unstable
 -- Portability :  portable
 --
--- This is a brief tutorial that will teach you how to create a
--- basic xmonad configuration.
+-- This is a brief tutorial that will teach you how to create a basic
+-- xmonad configuration.  For a more comprehensive tutorial, see the
+-- <https://xmonad.org/TUTORIAL.html xmonad website>.
 --
 -- For more detailed instructions on extending xmonad with the
--- xmonad-contrib library, see "XMonad.Doc.Extending".
+-- xmonad-contrib library, see
+-- <https://xmonad.org/TUTORIAL.html the tutorial>
+-- and "XMonad.Doc.Extending".
 --
 -----------------------------------------------------------------------------
 
@@ -148,4 +152,3 @@ GHC and xmonad are in the @$PATH@ in the environment from which xmonad
 is started.
 
 -}
-

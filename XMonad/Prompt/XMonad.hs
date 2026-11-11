@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Prompt.XMonad
+-- Description :  A prompt for running XMonad commands.
 -- Copyright   :  (C) 2007 Andrea Rossato
 -- License     :  BSD3
 --
@@ -17,16 +18,17 @@ module XMonad.Prompt.XMonad (
                              -- $usage
                              xmonadPrompt,
                              xmonadPromptC,
+                             xmonadPromptCT,
                              XMonad,
                               ) where
 
 import XMonad
 import XMonad.Prompt
 import XMonad.Actions.Commands (defaultCommands)
-import Data.Maybe (fromMaybe)
+import XMonad.Prelude (fromMaybe)
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Prompt
 -- > import XMonad.Prompt.XMonad
@@ -36,12 +38,12 @@ import Data.Maybe (fromMaybe)
 -- >   , ((modm .|. controlMask, xK_x), xmonadPrompt def)
 --
 -- For detailed instruction on editing the key binding see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
-data XMonad = XMonad
+newtype XMonad = XMonad String
 
 instance XPrompt XMonad where
-    showXPrompt XMonad = "XMonad: "
+    showXPrompt (XMonad str) = str <> ": "
 
 xmonadPrompt :: XPConfig -> X ()
 xmonadPrompt c = do
@@ -50,6 +52,10 @@ xmonadPrompt c = do
 
 -- | An xmonad prompt with a custom command list
 xmonadPromptC :: [(String, X ())] -> XPConfig -> X ()
-xmonadPromptC commands c =
-    mkXPrompt XMonad c (mkComplFunFromList' c (map fst commands)) $
+xmonadPromptC = xmonadPromptCT "XMonad"
+
+-- | An xmonad prompt with a custom command list and a custom title
+xmonadPromptCT :: String -> [(String, X ())] -> XPConfig -> X ()
+xmonadPromptCT title' commands c =
+    mkXPrompt (XMonad title') c (mkComplFunFromList' c (map fst commands)) $
         fromMaybe (return ()) . (`lookup` commands)

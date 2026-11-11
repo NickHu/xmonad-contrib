@@ -2,6 +2,7 @@
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.NoFrillsDecoration
+-- Description :  Most basic version of decoration for windows.
 -- Copyright   :  (c) Jan Vornberger 2009
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -30,7 +31,7 @@ import XMonad.Layout.SimpleDecoration
 
 -- $usage
 -- You can use this module with the following in your
--- @~\/.xmonad\/xmonad.hs@:
+-- @xmonad.hs@:
 --
 -- > import XMonad.Layout.NoFrillsDecoration
 --
@@ -46,7 +47,7 @@ noFrillsDeco :: (Eq a, Shrinker s) => s -> Theme
              -> l a -> ModifiedLayout (Decoration NoFrillsDecoration s) l a
 noFrillsDeco s c = decoration s c $ NFD True
 
-data NoFrillsDecoration a = NFD Bool deriving (Show, Read)
+newtype NoFrillsDecoration a = NFD Bool deriving (Show, Read)
 
 instance Eq a => DecorationStyle NoFrillsDecoration a where
     describeDeco _ = "NoFrillsDeco"

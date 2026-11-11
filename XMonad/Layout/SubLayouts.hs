@@ -1,7 +1,16 @@
-{-# LANGUAGE PatternGuards, ParallelListComp, DeriveDataTypeable, FlexibleInstances, FlexibleContexts, MultiParamTypeClasses, TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ParallelListComp #-}
+{-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ViewPatterns #-}
+
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.SubLayouts
+-- Description :  A layout combinator that allows layouts to be nested.
 -- Copyright   :  (c) 2009 Adam Vogt
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -38,8 +47,6 @@ module XMonad.Layout.SubLayouts (
     )
     where
 
-import XMonad.Layout.Circle () -- so haddock can find the link
-
 import XMonad.Layout.Decoration(Decoration, DefaultShrinker)
 import XMonad.Layout.LayoutModifier(LayoutModifier(handleMess, modifyLayout,
                                     redoLayout),
@@ -51,17 +58,15 @@ import XMonad.Layout.WindowNavigation(Navigate(Apply))
 import XMonad.Util.Invisible(Invisible(..))
 import XMonad.Util.Types(Direction2D(..))
 import XMonad hiding (def)
+import XMonad.Prelude
 import Control.Arrow(Arrow(second, (&&&)))
-import Control.Monad(MonadPlus(mplus), foldM, guard, when, join)
-import Data.Function(on)
-import Data.List(nubBy, (\\), find)
-import Data.Maybe(isNothing, fromMaybe, listToMaybe, mapMaybe)
 
 import qualified XMonad as X
 import qualified XMonad.Layout.BoringWindows as B
 import qualified XMonad.StackSet as W
 import qualified Data.Map as M
 import Data.Map(Map)
+import qualified Data.Set as S
 
 -- $screenshots
 --
@@ -108,7 +113,7 @@ import Data.Map(Map)
 --
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.SubLayouts
 -- > import XMonad.Layout.WindowNavigation
@@ -157,10 +162,9 @@ import Data.Map(Map)
 --  could not be used in the keybinding instead? It avoids having to explicitly
 --  pass the conf.
 --
--- For more detailed instructions, see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
--- "XMonad.Doc.Extending#Adding_key_bindings"
+-- For more detailed instructions, see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>
+-- and "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 -- | The main layout modifier arguments:
 --
@@ -178,14 +182,14 @@ import Data.Map(Map)
 --  [@outerLayout@] The layout that determines the rectangles given to each
 --  group.
 --
---  Ex. The second group is 'Tall', the third is 'Circle', all others are tabbed
---  with:
+--  Ex. The second group is 'Tall', the third is 'XMonad.Layout.CircleEx.circle',
+--  all others are tabbed with:
 --
 --  > myLayout = addTabs shrinkText def
---  >          $ subLayout [0,1,2] (Simplest ||| Tall 1 0.2 0.5 ||| Circle)
+--  >          $ subLayout [0,1,2] (Simplest ||| Tall 1 0.2 0.5 ||| circle)
 --  >          $ Tall 1 0.2 0.5 ||| Full
 subLayout :: [Int] -> subl a -> l a -> ModifiedLayout (Sublayout subl) l a
-subLayout nextLayout sl x = ModifiedLayout (Sublayout (I []) (nextLayout,sl) []) x
+subLayout nextLayout sl = ModifiedLayout (Sublayout (I []) (nextLayout,sl) [])
 
 -- | @subTabbed@ is a use of 'subLayout' with 'addTabs' to show decorations.
 subTabbed :: (Eq a, LayoutModifier (Sublayout Simplest) a, LayoutClass l a) =>
@@ -197,7 +201,7 @@ subTabbed  x = addTabs shrinkText X.def $ subLayout [] Simplest x
 -- defaults ones but to be used as a 'submap' for sending messages to the
 -- sublayout.
 defaultSublMap :: XConfig l -> Map (KeyMask, KeySym) (X ())
-defaultSublMap (XConfig { modMask = modm }) = M.fromList
+defaultSublMap XConfig{ modMask = modm } = M.fromList
          [((modm, xK_space), toSubl NextLayout),
           ((modm, xK_j), onGroup W.focusDown'),
           ((modm, xK_k), onGroup W.focusUp'),
@@ -212,7 +216,7 @@ defaultSublMap (XConfig { modMask = modm }) = M.fromList
          ]
         where
          -- should these go into XMonad.StackSet?
-         focusMaster' st = let (f:fs) = W.integrate st
+         focusMaster' st = let (notEmpty -> f :| fs) = W.integrate st
             in W.Stack f [] fs
          swapMaster' (W.Stack f u d) = W.Stack f [] $ reverse u ++ d
 
@@ -238,6 +242,9 @@ data Sublayout l a = Sublayout
 -- This representation probably simplifies the internals of the modifier.
 type Groups a = Map a (W.Stack a)
 
+-- | Stack of stacks, a simple representation of groups for purposes of focus.
+type GroupStack a = W.Stack (W.Stack a)
+
 -- | GroupMsg take window parameters to determine which group the action should
 -- be applied to
 data GroupMsg a
@@ -254,22 +261,21 @@ data GroupMsg a
     | WithGroup (W.Stack a -> X (W.Stack a)) a
     | SubMessage SomeMessage  a
                 -- ^ the sublayout with the given window will get the message
-    deriving (Typeable)
 
 -- | merge the window that would be focused by the function when applied to the
 -- W.Stack of all windows, with the current group removed. The given window
 -- should be focused by a sublayout. Example usage: @withFocused (sendMessage .
 -- mergeDir W.focusDown')@
 mergeDir :: (W.Stack Window -> W.Stack Window) -> Window -> GroupMsg Window
-mergeDir f w = WithGroup g w
+mergeDir f = WithGroup g
  where g cs = do
         let onlyOthers = W.filter (`notElem` W.integrate cs)
-        flip whenJust (sendMessage . Merge (W.focus cs) . W.focus . f)
-            =<< fmap (onlyOthers =<<) currentStack
+        (`whenJust` sendMessage . Merge (W.focus cs) . W.focus . f)
+            . (onlyOthers =<<)
+          =<< currentStack
         return cs
 
-data Broadcast = Broadcast SomeMessage -- ^ send a message to all sublayouts
-    deriving (Typeable)
+newtype Broadcast = Broadcast SomeMessage -- ^ send a message to all sublayouts
 
 instance Message Broadcast
 instance Typeable a => Message (GroupMsg a)
@@ -286,7 +292,7 @@ pullWindow = mergeNav (\o c -> sendMessage $ Migrate o c)
 pushWindow = mergeNav (\o c -> sendMessage $ Migrate c o)
 
 mergeNav :: (Window -> Window -> X ()) -> Direction2D -> Navigate
-mergeNav f = Apply (\o -> withFocused (f o))
+mergeNav f = Apply (withFocused . f)
 
 -- | Apply a function on the stack belonging to the currently focused group. It
 -- works for rearranging windows and for changing focus.
@@ -297,22 +303,22 @@ onGroup f = withFocused (sendMessage . WithGroup (return . f))
 toSubl :: (Message a) => a -> X ()
 toSubl m = withFocused (sendMessage . SubMessage (SomeMessage m))
 
-instance (Read (l Window), Show (l Window), LayoutClass l Window) => LayoutModifier (Sublayout l) Window where
-    modifyLayout (Sublayout { subls = osls }) (W.Workspace i la st) r = do
+instance forall l. (Read (l Window), Show (l Window), LayoutClass l Window) => LayoutModifier (Sublayout l) Window where
+    modifyLayout Sublayout{ subls = osls } (W.Workspace i la st) r = do
             let gs' = updateGroup st $ toGroups osls
                 st' = W.filter (`elem` M.keys gs') =<< st
             updateWs gs'
-            oldStack <- gets $ W.stack . W.workspace . W.current . windowset
+            oldStack <- currentStack
             setStack st'
             runLayout (W.Workspace i la st') r <* setStack oldStack
             -- FIXME: merge back reordering, deletions?
 
-    redoLayout (Sublayout { delayMess = I ms, def = defl, subls = osls }) _r st arrs = do
+    redoLayout Sublayout{ delayMess = I ms, def = defl, subls = osls } _r st arrs = do
         let gs' = updateGroup st $ toGroups osls
         sls <- fromGroups defl st gs' osls
 
-        let newL :: LayoutClass l Window => Rectangle -> WorkspaceId -> (l Window) -> Bool
-                    -> (Maybe (W.Stack Window)) -> X ([(Window, Rectangle)], l Window)
+        let newL :: LayoutClass l Window => Rectangle -> WorkspaceId -> l Window -> Bool
+                    -> Maybe (W.Stack Window) -> X ([(Window, Rectangle)], l Window)
             newL rect n ol isNew sst = do
                 orgStack <- currentStack
                 let handle l (y,_)
@@ -340,7 +346,7 @@ instance (Read (l Window), Show (l Window), LayoutClass l Window) => LayoutModif
             return $ Just $ Sublayout (I ((sm,w):ms)) defl sls
 
         | Just (Broadcast sm) <- fromMessage m = do
-            ms' <- fmap (zip (repeat sm) . W.integrate') currentStack
+            ms' <- fmap (map (sm,) . W.integrate') currentStack
             return $ if null ms' then Nothing
                 else Just $ Sublayout (I $ ms' ++ ms) defl sls
 
@@ -389,7 +395,7 @@ instance (Read (l Window), Show (l Window), LayoutClass l Window) => LayoutModif
             in fgs $ nxsAdd $ M.insert x zs $ M.delete yf gs
 
 
-        | otherwise = join <$> sequenceA (catchLayoutMess <$> fromMessage m)
+        | otherwise = join <$> traverse catchLayoutMess (fromMessage m)
      where gs = toGroups sls
            fgs gs' = do
                 st <- currentStack
@@ -397,13 +403,11 @@ instance (Read (l Window), Show (l Window), LayoutClass l Window) => LayoutModif
 
            findGroup z = mplus (M.lookup z gs) $ listToMaybe
                     $ M.elems $ M.filter ((z `elem`) . W.integrate) gs
-           -- catchLayoutMess :: LayoutMessages -> X (Maybe (Sublayout l Window))
-           --  This l must be the same as from the instance head,
-           --  -XScopedTypeVariables should bring it into scope, but we are
-           --  trying to avoid warnings with ghc-6.8.2 and avoid CPP
+
+           catchLayoutMess :: LayoutMessages -> X (Maybe (Sublayout l Window))
            catchLayoutMess x = do
             let m' = x `asTypeOf` (undefined :: LayoutMessages)
-            ms' <- zip (repeat $ SomeMessage m') . W.integrate'
+            ms' <- map (SomeMessage m',) . W.integrate'
                     <$> currentStack
             return $ do guard $ not $ null ms'
                         Just $ Sublayout (I $ ms' ++ ms) defl sls
@@ -413,48 +417,64 @@ currentStack = gets (W.stack . W.workspace . W.current . windowset)
 
 -- | update Group to follow changes in the workspace
 updateGroup :: Ord a => Maybe (W.Stack a) -> Groups a -> Groups a
-updateGroup mst gs =
-        let flatten = concatMap W.integrate . M.elems
-            news = W.integrate' mst \\ flatten gs
-            deads = flatten gs \\ W.integrate' mst
+updateGroup Nothing _ = mempty
+updateGroup (Just st) gs = fromGroupStack (toGroupStack gs st)
 
-            uniNew = M.union (M.fromList $ map (\n -> (n,single n)) news)
-            single x = W.Stack x [] []
-
-            -- pass through a list to update/remove keys
-            remDead = M.fromList . map (\w -> (W.focus w,w))
-                        . mapMaybe (W.filter (`notElem` deads)) . M.elems
-
-            -- update the current tab group's order and focus
-            followFocus hs = fromMaybe hs $ do
-                f' <- W.focus <$> mst
-                xs <- find (elem f' . W.integrate) $ M.elems hs
-                xs' <- W.filter (`elem` W.integrate xs) =<< mst
-                return $ M.insert f' xs' $ M.delete (W.focus xs) hs
-
-        in remDead $ uniNew $ followFocus gs
-
--- | rearrange the windowset to put the groups of tabs next to eachother, so
+-- | rearrange the windowset to put the groups of tabs next to each other, so
 -- that the stack of tabs stays put.
 updateWs :: Groups Window -> X ()
 updateWs = windowsMaybe . updateWs'
 
 updateWs' :: Groups Window -> WindowSet -> Maybe WindowSet
 updateWs' gs ws = do
-    f <- W.peek ws
-    let w = W.index ws
-        nes = concatMap W.integrate $ mapMaybe (flip M.lookup gs) w
-        ws' = W.focusWindow f $ foldr W.insertUp (foldr W.delete' ws nes) nes
-    guard $ W.index ws' /= W.index ws
-    return ws'
+    w <- W.stack . W.workspace . W.current $ ws
+    let w' = flattenGroupStack . toGroupStack gs $ w
+    guard $ w /= w'
+    pure $ W.modify' (const w') ws
+
+-- | Flatten a stack of stacks.
+flattenGroupStack :: GroupStack a -> W.Stack a
+flattenGroupStack (W.Stack (W.Stack f lf rf) ls rs) =
+    let l = lf ++ concatMap (reverse . W.integrate) ls
+        r = rf ++ concatMap W.integrate rs
+    in W.Stack f l r
+
+-- | Extract Groups from a stack of stacks.
+fromGroupStack :: (Ord a) => GroupStack a -> Groups a
+fromGroupStack = M.fromList . map (W.focus &&& id) . W.integrate
+
+-- | Arrange a stack of windows into a stack of stacks, according to (possibly
+-- outdated) Groups.
+--
+-- Assumes that the groups are disjoint and there are no duplicates in the
+-- stack; will result in additional duplicates otherwise. This is a reasonable
+-- assumption—the rest of xmonad will mishave too—but it isn't checked
+-- anywhere and there had been bugs breaking this assumption in the past.
+toGroupStack :: (Ord a) => Groups a -> W.Stack a -> GroupStack a
+toGroupStack gs st@(W.Stack f ls rs) =
+    W.Stack (fromJust (lu f)) (mapMaybe lu ls) (mapMaybe lu rs)
+  where
+    wset = S.fromList (W.integrate st)
+    dead = W.filter (`S.member` wset) -- drop dead windows or entire groups
+    refocus s | f `elem` W.integrate s -- sync focus/order of current group
+                                       = W.filter (`elem` W.integrate s) st
+              | otherwise = pure s
+    gs' = mapGroups (refocus <=< dead) gs
+    gset = S.fromList . concatMap W.integrate . M.elems $ gs'
+    -- after refocus, f is either the focused window of some group, or not in
+    -- gs' at all, so `lu f` is never Nothing
+    lu w | w `S.member` gset = w `M.lookup` gs'
+         | otherwise = Just (W.Stack w [] []) -- singleton groups for new wins
+
+mapGroups :: (Ord a) => (W.Stack a -> Maybe (W.Stack a)) -> Groups a -> Groups a
+mapGroups f = M.fromList . map (W.focus &&& id) . mapMaybe f . M.elems
 
 -- | focusWindow'. focus an element of a stack, is Nothing if that element is
 -- absent. See also 'W.focusWindow'
 focusWindow' :: (Eq a) => a -> W.Stack a -> Maybe (W.Stack a)
 focusWindow' w st = do
-    guard $ not $ null $ filter (w==) $ W.integrate st
-    if W.focus st == w then Just st
-        else focusWindow' w $ W.focusDown' st
+    guard $ w `elem` W.integrate st
+    return $ until ((w ==) . W.focus) W.focusDown' st
 
 -- update only when Just
 windowsMaybe :: (WindowSet -> Maybe WindowSet) -> X ()

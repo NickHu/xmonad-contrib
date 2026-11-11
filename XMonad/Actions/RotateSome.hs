@@ -1,6 +1,9 @@
+{-# LANGUAGE ViewPatterns #-}
+
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.RotateSome
+-- Description :  Rotate some elements around the stack.
 -- Copyright   :  (c) 2020 Ivan Brennan <ivanbrennan@gmail.com>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -25,13 +28,14 @@ module XMonad.Actions.RotateSome (
   ) where
 
 import Control.Arrow ((***))
-import Data.List (partition, sortOn, (\\))
+import XMonad.Prelude (NonEmpty(..), notEmpty, partition, sortOn, (\\))
 import qualified Data.Map as M
 import XMonad (Window, WindowSpace, Rectangle, X, runLayout, screenRect, windows, withWindowSet)
 import XMonad.StackSet (Screen (Screen), Stack (Stack), current, floating, modify', stack)
+import XMonad.Util.Stack (reverseS)
 
 {- $usage
-You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+You can use this module with the following in your @xmonad.hs@:
 
 > import XMonad.Actions.RotateSome
 
@@ -101,7 +105,7 @@ surfaceNext = do
 surfacePrev :: X ()
 surfacePrev = do
   ring <- surfaceRing
-  windows . modify' $ reverseStack . rotateSome (`elem` ring) . reverseStack
+  windows . modify' $ reverseS . rotateSome (`elem` ring) . reverseS
 
 -- |
 -- Return a list containing the current focus plus any unshown windows. Note
@@ -146,18 +150,14 @@ rotateSome p (Stack t ls rs) =
     -- Append anchored elements, along with their unchanged indices, and sort
     -- by index. Separate lefts (negative indices) from the rest, and grab the
     -- new focus from the head of the remaining elements.
-    (ls', t':rs') =
+    (ls', notEmpty -> t' :| rs') =
       (map snd *** map snd)
         . span ((< 0) . fst)
         . sortOn fst
         . (++) anchors
-        . map (fst *** snd)
-        $ zip movables (rotate movables)
+        $ zipWith (curry (fst *** snd)) movables (rotate movables)
   in
     Stack t' (reverse ls') rs'
 
 rotate :: [a] -> [a]
 rotate = uncurry (flip (++)) . splitAt 1
-
-reverseStack :: Stack a -> Stack a
-reverseStack (Stack t ls rs) = Stack t rs ls

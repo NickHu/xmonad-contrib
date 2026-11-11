@@ -3,6 +3,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Spiral
+-- Description :  A spiral tiling layout.
 -- Copyright   :  (c) Joe Thornber <joe.thornber@gmail.com>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -30,7 +31,7 @@ import XMonad hiding ( Rotation )
 import XMonad.StackSet ( integrate )
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.Spiral
 --
@@ -39,12 +40,12 @@ import XMonad.StackSet ( integrate )
 -- > myLayout =  spiral (6/7) ||| etc..
 -- > main = xmonad def { layoutHook = myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 fibs :: [Integer]
-fibs = 1 : 1 : zipWith (+) fibs (tail fibs)
+fibs = 1 : 1 : zipWith (+) fibs (drop 1 fibs)
 
 mkRatios :: [Integer] -> [Rational]
 mkRatios (x1:x2:xs) = (x1 % x2) : mkRatios (x2:xs)
@@ -57,7 +58,7 @@ blend :: Rational -> [Rational] -> [Rational]
 blend scale ratios = zipWith (+) ratios scaleFactors
     where
       len = length ratios
-      step = (scale - (1 % 1)) / (fromIntegral len)
+      step = (scale - (1 % 1)) / fromIntegral len
       scaleFactors = map (* step) . reverse . take len $ [0..]
 
 -- | A spiral layout.  The parameter controls the size ratio between
@@ -81,7 +82,7 @@ data SpiralWithDir a = SpiralWithDir Direction Rotation Rational
 instance LayoutClass SpiralWithDir a where
     pureLayout (SpiralWithDir dir rot scale) sc stack = zip ws rects
         where ws = integrate stack
-              ratios = blend scale . reverse . take (length ws - 1) . mkRatios $ tail fibs
+              ratios = blend scale . reverse . take (length ws - 1) . mkRatios $ drop 1 fibs
               rects = divideRects (zip ratios dirs) sc
               dirs  = dropWhile (/= dir) $ case rot of
                                            CW  -> cycle [East .. North]
@@ -95,7 +96,7 @@ instance LayoutClass SpiralWithDir a where
 divideRects :: [(Rational, Direction)] -> Rectangle -> [Rectangle]
 divideRects [] r = [r]
 divideRects ((r,d):xs) rect = case divideRect r d rect of
-                                (r1, r2) -> r1 : (divideRects xs r2)
+                                (r1, r2) -> r1 : divideRects xs r2
 
 -- It's much simpler if we work with all Integers and convert to
 -- Rectangle at the end.
@@ -120,5 +121,5 @@ divideRect' ratio dir (Rect x y w h) =
       North -> let (h1, h2) = chop (1 - ratio) h in (Rect x (y + h1) w h2, Rect x y w h1)
 
 chop :: Rational -> Integer -> (Integer, Integer)
-chop rat n = let f = ((fromIntegral n) * (numerator rat)) `div` (denominator rat) in
+chop rat n = let f = (fromIntegral n * numerator rat) `div` denominator rat in
              (f, n - f)

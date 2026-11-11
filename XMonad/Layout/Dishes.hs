@@ -1,8 +1,9 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, TupleSections #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Dishes
+-- Description :  A layout that stacks extra windows underneath the master windows.
 -- Copyright   :  (c) Jeremy Apthorp
 -- License     :  BSD-style (see LICENSE)
 --
@@ -23,10 +24,10 @@ module XMonad.Layout.Dishes (
 
 import XMonad
 import XMonad.StackSet (integrate)
-import Control.Monad (ap)
+import XMonad.Prelude (ap)
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.Dishes
 --
@@ -35,14 +36,14 @@ import Control.Monad (ap)
 -- > myLayout = Dishes 2 (1/6) ||| Full ||| etc..
 -- > main = xmonad def { layoutHook = myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 data Dishes a = Dishes Int Rational deriving (Show, Read)
 instance LayoutClass Dishes a where
     doLayout (Dishes nmaster h) r =
-        return . (\x->(x,Nothing)) .
+        return . (, Nothing) .
         ap zip (dishes h r nmaster . length) . integrate
     pureMessage (Dishes nmaster h) m = fmap incmastern (fromMessage m)
         where incmastern (IncMasterN d) = Dishes (max 0 (nmaster+d)) h
@@ -52,5 +53,5 @@ dishes h s nmaster n = if n <= nmaster
                         then splitHorizontally n s
                         else ws
  where
-    (m,rest) = splitVerticallyBy (1 - (fromIntegral $ n - nmaster) * h) s
+    (m,rest) = splitVerticallyBy (1 - fromIntegral (n - nmaster) * h) s
     ws = splitHorizontally nmaster m ++ splitVertically (n - nmaster) rest

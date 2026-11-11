@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Actions.SinkAll
+-- Description  : (DEPRECATED) Push floating windows back into tiling.
 -- License      : BSD3-style (see LICENSE)
 -- Stability    : unstable
 -- Portability  : unportable
@@ -12,7 +13,7 @@
 -- 'sinkAll' function for backwards compatibility.
 -----------------------------------------------------------------------------
 
-module XMonad.Actions.SinkAll (
+module XMonad.Actions.SinkAll {-# DEPRECATED "Use XMonad.Actions.WithAll instead" #-} (
     -- * Usage
     -- $usage
 
@@ -22,7 +23,7 @@ import XMonad.Actions.WithAll (sinkAll)
 
 -- $usage
 --
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Actions.SinkAll
 --
@@ -31,4 +32,4 @@ import XMonad.Actions.WithAll (sinkAll)
 -- >   , ((modm .|. shiftMask, xK_t), sinkAll)
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.

@@ -3,6 +3,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Dwindle
+-- Description :  Various spirally layouts.
 -- Copyright   :  (c) Norbert Zeh <norbert.zeh@gmail.com>
 -- License     :  BSD3
 --
@@ -27,7 +28,7 @@ module XMonad.Layout.Dwindle ( -- * Usage
                              , Chirality(..)
                              ) where
 
-import Data.List ( unfoldr )
+import XMonad.Prelude ( unfoldr )
 import XMonad
 import XMonad.StackSet ( integrate, Stack )
 import XMonad.Util.Types ( Direction2D(..) )
@@ -67,9 +68,9 @@ import XMonad.Util.Types ( Direction2D(..) )
 -- 1.1, is the factor by which the third parameter increases or decreases in
 -- response to Expand or Shrink messages.
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 -- | Layouts with geometrically decreasing window sizes.  'Spiral' and 'Dwindle'
 -- split the screen into a rectangle for the first window and a rectangle for
@@ -110,7 +111,7 @@ import XMonad.Util.Types ( Direction2D(..) )
 --
 -- * First split chirality
 --
--- * Size ratio between rectangle allocated to current window and rectangle 
+-- * Size ratio between rectangle allocated to current window and rectangle
 -- allocated to remaining windows
 --
 -- * Factor by which the size ratio is changed in response to 'Expand' or 'Shrink'
@@ -143,12 +144,12 @@ changeRatio ratio delta = fmap f . fromMessage
   where f Expand = ratio * delta
         f Shrink = ratio / delta
 
-dwindle :: AxesGenerator -> Direction2D -> Chirality -> Rational -> Rectangle -> Stack a -> 
+dwindle :: AxesGenerator -> Direction2D -> Chirality -> Rational -> Rectangle -> Stack a ->
            [(a, Rectangle)]
 dwindle trans dir rot ratio rect st = unfoldr genRects (integrate st, rect, dirAxes dir, rot)
-  where genRects ([],     _, _, _)  = Nothing
-        genRects ([w],    r, a, rt) = Just ((w, r),  ([], r,   a,  rt))
-        genRects ((w:ws), r, a, rt) = Just ((w, r'), (ws, r'', a', rt'))
+  where genRects ([],   _, _, _ ) = Nothing
+        genRects ([w],  r, a, rt) = Just ((w, r),  ([], r,   a,  rt))
+        genRects (w:ws, r, a, rt) = Just ((w, r'), (ws, r'', a', rt'))
           where (r', r'') = splitRect r ratio a
                 (a', rt') = trans a rt
 
@@ -158,9 +159,9 @@ squeeze dir ratio rect st = zip wins rects
         nwins   = length wins
         sizes   = take nwins $ unfoldr (\r -> Just (r * ratio, r * ratio)) 1
         totals' = 0 : zipWith (+) sizes totals'
-        totals  = tail totals'
-        splits  = zip (tail sizes) totals
-        ratios  = reverse $ map (\(l, r) -> l / r) splits
+        totals  = drop 1 totals'
+        splits  = zip (drop 1 sizes) totals
+        ratios  = reverse $ map (uncurry (/)) splits
         rects   = genRects rect ratios
         genRects r []     = [r]
         genRects r (x:xs) = r' : genRects r'' xs

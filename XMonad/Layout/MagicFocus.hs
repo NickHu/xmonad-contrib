@@ -1,8 +1,9 @@
-{-# LANGUAGE FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleContexts, FlexibleInstances, MultiParamTypeClasses #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Layout.MagicFocus
+-- Description :  Automagically put the focused window in the master area.
 -- Copyright    : (c) Peter De Wachter <pdewacht@gmail.com>
 -- License      : BSD
 --
@@ -29,11 +30,11 @@ import qualified XMonad.StackSet as W
 import XMonad.Layout.LayoutModifier
 
 import XMonad.Actions.UpdatePointer (updatePointer)
-import Data.Monoid(All(..))
+import XMonad.Prelude(All(..))
 import qualified Data.Map as M
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.MagicFocus
 --
@@ -44,9 +45,9 @@ import qualified Data.Map as M
 -- > main = xmonad def { layoutHook = myLayout,
 -- >                     handleEventHook = promoteWarp }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 -- | Create a new layout which automagically puts the focused window
 --   in the master area.
@@ -56,14 +57,11 @@ magicFocus = ModifiedLayout MagicFocus
 data MagicFocus a = MagicFocus deriving (Show, Read)
 
 instance LayoutModifier MagicFocus Window where
-  modifyLayout MagicFocus (W.Workspace i l s) r =
-    withWindowSet $ \wset ->
-      runLayout (W.Workspace i l (s >>= \st -> Just $ swap st (W.peek wset))) r
+  modifyLayout MagicFocus (W.Workspace i l s) =
+    runLayout (W.Workspace i l (s >>= Just . shift))
 
-swap :: (Eq a) => W.Stack a -> Maybe a -> W.Stack a
-swap (W.Stack f u d) focused
-    | Just f == focused = W.Stack f [] (reverse u ++ d)
-    | otherwise         = W.Stack f u d
+shift :: (Eq a) => W.Stack a -> W.Stack a
+shift (W.Stack f u d) = W.Stack f [] (reverse u ++ d)
 
 -- | An eventHook that overrides the normal focusFollowsMouse. When the mouse
 -- it moved to another window, that window is replaced as the master, and the
@@ -80,7 +78,7 @@ promoteWarp = promoteWarp' (0.5, 0.5) (0.85, 0.85)
 -- | promoteWarp' allows you to specify an arbitrary pair of arguments to
 -- pass to 'updatePointer' when the mouse enters another window.
 promoteWarp' :: (Rational, Rational) -> (Rational, Rational) -> Event -> X All
-promoteWarp' refPos ratio e@(CrossingEvent {ev_window = w, ev_event_type = t})
+promoteWarp' refPos ratio e@CrossingEvent{ev_window = w, ev_event_type = t}
     | t == enterNotify && ev_mode   e == notifyNormal = do
         ws <- gets windowset
         let foc = W.peek ws
@@ -98,7 +96,7 @@ promoteWarp' _ _ _ = return $ All True
 -- focusFollowsMouse only for given workspaces or layouts.
 -- Beware that your focusFollowsMouse setting is ignored if you use this event hook.
 followOnlyIf :: X Bool -> Event -> X All
-followOnlyIf cond e@(CrossingEvent {ev_window = w, ev_event_type = t})
+followOnlyIf cond e@CrossingEvent{ev_window = w, ev_event_type = t}
     | t == enterNotify && ev_mode e == notifyNormal
     = whenX cond (focus w) >> return (All False)
 followOnlyIf _ _ = return $ All True

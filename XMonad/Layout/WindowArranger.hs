@@ -1,7 +1,8 @@
-{-# LANGUAGE DeriveDataTypeable, PatternGuards, FlexibleInstances, MultiParamTypeClasses, TypeSynonymInstances    #-}
+{-# LANGUAGE PatternGuards, FlexibleInstances, MultiParamTypeClasses #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.WindowArranger
+-- Description :  A layout modifier to move and resize windows with the keyboard.
 -- Copyright   :  (c) Andrea Rossato 2007
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -26,16 +27,15 @@ module XMonad.Layout.WindowArranger
     ) where
 
 import XMonad
+import XMonad.Prelude
 import qualified XMonad.StackSet as S
 import XMonad.Layout.LayoutModifier
-import XMonad.Util.XUtils (fi)
 
-import Control.Arrow
-import Data.List
+import Control.Arrow ((***), (>>>), (&&&), first)
 
 -- $usage
 -- You can use this module with the following in your
--- @~\/.xmonad\/xmonad.hs@:
+-- @xmonad.hs@:
 --
 -- > import XMonad.Layout.WindowArranger
 -- > myLayout = layoutHook def
@@ -45,9 +45,9 @@ import Data.List
 --
 -- > main = xmonad def { layoutHook = windowArrangeAll myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 --
 -- You may also want to define some key binding to move or resize
 -- windows. These are good defaults:
@@ -68,7 +68,7 @@ import Data.List
 -- >        , ((modm .|. controlMask .|. shiftMask, xK_Up   ), sendMessage (DecreaseUp    1))
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 -- | A layout modifier to float the windows in a workspace
 windowArrange :: l a -> ModifiedLayout WindowArranger l a
@@ -93,7 +93,6 @@ data WindowArrangerMsg = DeArrange
                        | MoveUp        Int
                        | MoveDown      Int
                        | SetGeometry   Rectangle
-                         deriving ( Typeable )
 instance Message WindowArrangerMsg
 
 data ArrangedWindow a = WR   (a, Rectangle)
@@ -163,7 +162,7 @@ getWR ::  Eq a => a -> [(a,Rectangle)] -> [(a,Rectangle)]
 getWR = memberFromList fst (==)
 
 mkNewAWRs :: Eq a => ArrangeAll -> [a] -> [(a,Rectangle)] -> [ArrangedWindow a]
-mkNewAWRs b w wrs = map t . concatMap (flip getWR wrs) $ w
+mkNewAWRs b w wrs = map t . concatMap (`getWR` wrs) $ w
     where t = if b then AWR else WR
 
 removeAWRs :: Eq a => [a] -> [ArrangedWindow a] -> [ArrangedWindow a]
@@ -178,7 +177,7 @@ replaceWR :: Eq a => [(a, Rectangle)] -> [ArrangedWindow a] -> [ArrangedWindow a
 replaceWR wrs = foldr r []
     where r x xs
               | WR wr <- x = case fst wr `elemIndex` map fst wrs of
-                               Just i  -> (WR $ wrs !! i):xs
+                               Just i  -> WR (wrs !! i):xs
                                Nothing -> x:xs
               | otherwise  = x:xs
 

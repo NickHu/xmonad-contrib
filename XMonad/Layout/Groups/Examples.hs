@@ -1,9 +1,13 @@
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
-{-# LANGUAGE MultiParamTypeClasses, Rank2Types, TypeFamilies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.Groups.Examples
+-- Description :  Example layouts for "XMonad.Layout.Groups".
 -- Copyright   :  Quentin Moser <moserq@gmail.com>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -51,16 +55,14 @@ module XMonad.Layout.Groups.Examples ( -- * Usage
                                      , zoomRowG
                                      ) where
 
-import XMonad hiding ((|||))
+import XMonad
 
 import qualified XMonad.Layout.Groups as G
 import XMonad.Layout.Groups.Helpers
 
 import XMonad.Layout.ZoomRow
 import XMonad.Layout.Tabbed
-import XMonad.Layout.Named
 import XMonad.Layout.Renamed
-import XMonad.Layout.LayoutCombinators
 import XMonad.Layout.Decoration
 import XMonad.Layout.Simplest
 
@@ -74,7 +76,7 @@ import XMonad.Layout.Simplest
 --
 -- > import XMonad.Layout.Groups.Examples
 --
--- to the top of your @.\/.xmonad\/xmonad.hs@.
+-- to the top of your @xmonad.hs@.
 --
 -- For more information on using any of the layouts, jump directly
 --   to its \"Example\" section.
@@ -85,8 +87,8 @@ import XMonad.Layout.Simplest
 --   the "XMonad.Layout.Groups.Helpers" module, which are all
 --   re-exported by this module.
 --
--- For more information on how to extend your layour hook and key bindings, see
---   "XMonad.Doc.Extending".
+-- For more information on how to extend your layoutHook and key bindings, see
+-- <https://xmonad.org/TUTORIAL.html the tutorial> and "XMonad.Doc.Extending".
 
 
 -- * Helper: ZoomRow of Group elements
@@ -133,20 +135,20 @@ rowOfColumns = G.group column zoomRowG
 
 -- | Increase the width of the focused column
 zoomColumnIn :: X ()
-zoomColumnIn = sendMessage $ G.ToEnclosing $ SomeMessage $ zoomIn
+zoomColumnIn = sendMessage $ G.ToEnclosing $ SomeMessage zoomIn
 
 -- | Decrease the width of the focused column
 zoomColumnOut :: X ()
-zoomColumnOut = sendMessage $ G.ToEnclosing $ SomeMessage $ zoomOut
+zoomColumnOut = sendMessage $ G.ToEnclosing $ SomeMessage zoomOut
 
 -- | Reset the width of the focused column
 zoomColumnReset :: X ()
-zoomColumnReset = sendMessage $ G.ToEnclosing $ SomeMessage $ zoomReset
+zoomColumnReset = sendMessage $ G.ToEnclosing $ SomeMessage zoomReset
 
 -- | Toggle whether the currently focused column should
 -- take up all available space whenever it has focus
 toggleColumnFull :: X ()
-toggleColumnFull = sendMessage $ G.ToEnclosing $ SomeMessage $ ZoomFullToggle
+toggleColumnFull = sendMessage $ G.ToEnclosing $ SomeMessage ZoomFullToggle
 
 -- | Increase the heigth of the focused window
 zoomWindowIn :: X ()
@@ -209,13 +211,13 @@ tallTabs c = _tab c $ G.group _tabs $ _vert c ||| _horiz c ||| Full
 
 mirrorTallTabs c = _tab c $ G.group _tabs $ _horiz c ||| Full ||| _vert c
 
-_tabs = named "Tabs" Simplest
+_tabs = renamed [Replace "Tabs"] Simplest
 
 _tab c l = renamed [CutWordsLeft 1] $ addTabs (tabsShrinker c) (tabsTheme c) l
 
-_vert c = named "Vertical" $ Tall (vNMaster c) (vIncrement c) (vRatio c)
+_vert c = renamed [Replace "Vertical"] $ Tall (vNMaster c) (vIncrement c) (vRatio c)
 
-_horiz c = named "Horizontal" $ Mirror $ Tall (hNMaster c) (hIncrement c) (hRatio c)
+_horiz c = renamed [Replace "Horizontal"] $ Mirror $ Tall (hNMaster c) (hIncrement c) (hRatio c)
 
 -- | Increase the number of master groups by one
 increaseNMasterGroups :: X ()
@@ -227,13 +229,12 @@ decreaseNMasterGroups = sendMessage $ G.ToEnclosing $ SomeMessage $ IncMasterN (
 
 -- | Shrink the master area
 shrinkMasterGroups :: X ()
-shrinkMasterGroups = sendMessage $ G.ToEnclosing $ SomeMessage $ Shrink
+shrinkMasterGroups = sendMessage $ G.ToEnclosing $ SomeMessage Shrink
 
 -- | Expand the master area
 expandMasterGroups :: X ()
-expandMasterGroups = sendMessage $ G.ToEnclosing $ SomeMessage $ Expand
+expandMasterGroups = sendMessage $ G.ToEnclosing $ SomeMessage Expand
 
 -- | Rotate the available outer layout algorithms
 nextOuterLayout :: X ()
-nextOuterLayout = sendMessage $ G.ToEnclosing $ SomeMessage $ NextLayout
-
+nextOuterLayout = sendMessage $ G.ToEnclosing $ SomeMessage NextLayout

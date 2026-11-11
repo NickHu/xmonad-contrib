@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Prompt.Ssh
+-- Description :  An ssh prompt.
 -- Copyright   :  (C) 2007 Andrea Rossato
 -- License     :  BSD3
 --
@@ -20,6 +21,7 @@ module XMonad.Prompt.Ssh
     ) where
 
 import XMonad
+import XMonad.Prelude
 import XMonad.Util.Run
 import XMonad.Prompt
 
@@ -27,15 +29,11 @@ import System.Directory
 import System.Environment
 import Control.Exception as E
 
-import Control.Applicative (liftA2)
-import Data.Maybe
-import Data.List(elemIndex)
-
 econst :: Monad m => a -> IOException -> m a
 econst = const . return
 
 -- $usage
--- 1. In your @~\/.xmonad\/xmonad.hs@:
+-- 1. In your @xmonad.hs@:
 --
 -- > import XMonad.Prompt
 -- > import XMonad.Prompt.Ssh
@@ -45,20 +43,20 @@ econst = const . return
 -- >   , ((modm .|. controlMask, xK_s), sshPrompt def)
 --
 -- Keep in mind, that if you want to use the completion you have to
--- disable the "HashKnownHosts" option in your ssh_config
+-- disable the \"HashKnownHosts\" option in your ssh_config
 --
 -- For detailed instruction on editing the key binding see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 data Ssh = Ssh
 
 instance XPrompt Ssh where
     showXPrompt       Ssh = "SSH to: "
-    commandToComplete _ c = maybe c (\(_u,h) -> h) (parseHost c)
+    commandToComplete _ c = maybe c snd (parseHost c)
     nextCompletion _t c l = maybe next (\(u,_h) -> u ++ "@" ++ next) hostPared
                             where
                               hostPared = parseHost c
-                              next = getNextCompletion (maybe c (\(_u,h) -> h) hostPared) l
+                              next = getNextCompletion (maybe c snd hostPared) l
 
 sshPrompt :: XPConfig -> X ()
 sshPrompt c = do
@@ -141,4 +139,4 @@ getWithPort ('[':str) = host ++ " -p " ++ port
 getWithPort  str = str
 
 parseHost :: String -> Maybe (String, String)
-parseHost a = elemIndex '@' a  >>= (\c-> Just ( (take c a), (drop (c+1) a) ) )
+parseHost a = elemIndex '@' a  >>= (\c-> Just ( take c a, drop (c+1) a ) )

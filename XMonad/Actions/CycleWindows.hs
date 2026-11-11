@@ -1,6 +1,9 @@
+{-# LANGUAGE ViewPatterns, MultiWayIf #-}
+
 --------------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Actions.CycleWindows
+-- Description  : Cycle windows while maintaining focus in place.
 -- Copyright    : (c) Wirt Wolff <wirtwolff@gmail.com>
 -- License      : BSD3-style (see LICENSE)
 --
@@ -47,18 +50,21 @@ module XMonad.Actions.CycleWindows (
         -- $pointer
 
         -- * Generic list rotations
-        -- $generic
         rotUp, rotDown
 ) where
 
 import XMonad
+import XMonad.Prelude
 import qualified XMonad.StackSet as W
+import qualified Data.List.NonEmpty as NE
 import XMonad.Actions.RotSlaves
+import XMonad.Actions.Repeatable (repeatableSt)
 
 import Control.Arrow (second)
+import Control.Monad.Trans (lift)
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@ file:
+-- You can use this module with the following in your @xmonad.hs@ file:
 --
 -- > import XMonad.Actions.CycleWindows
 -- >    -- config
@@ -74,7 +80,7 @@ import Control.Arrow (second)
 --
 -- Also, if you use focus follows mouse, you will want to read the section
 -- on updating the mouse pointer below.  For detailed instructions on
--- editing your key bindings, see "XMonad.Doc.Extending#Editing_key_bindings".
+-- editing your key bindings, see <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 {- $pointer
 With FocusFollowsMouse == True, the focus is updated after binding
 actions, possibly focusing a window you didn't intend to focus. Most
@@ -116,7 +122,7 @@ cycleRecentWindows :: [KeySym] -- ^ A list of modifier keys used when invoking t
                                --   If it's the same as the first key, it is effectively ignored.
                     -> X ()
 cycleRecentWindows = cycleStacks' stacks where
-    stacks s = map (shiftToFocus' `flip` s) (wins s)
+    stacks s = map (`shiftToFocus'` s) (wins s)
     wins (W.Stack t l r) = t : r ++ reverse l
 
 
@@ -134,27 +140,19 @@ cycleStacks' :: (W.Stack Window -> [W.Stack Window]) -- ^ A function to a finite
                                     -> KeySym    -- ^ Key used to select a \"previous\" stack.
                                     -> X ()
 cycleStacks' filteredPerms mods keyNext keyPrev = do
-    XConf {theRoot = root, display = d} <- ask
-    stacks <- gets $ maybe [] filteredPerms . W.stack . W.workspace . W.current . windowset
-
-    let evt = allocaXEvent $
-                  \p -> do maskEvent d (keyPressMask .|. keyReleaseMask) p
-                           KeyEvent {ev_event_type = t, ev_keycode = c} <- getEvent p
-                           s <- keycodeToKeysym d c 0
-                           return (t, s)
-        choose n (t, s)
-              | t == keyPress   && s == keyNext  = io evt >>= choose (n+1)
-              | t == keyPress   && s == keyPrev  = io evt >>= choose (n-1)
-              | t == keyPress   && s `elem` [xK_0..xK_9] = io evt >>= choose (numKeyToN s)
-              | t == keyRelease && s `elem` mods = return ()
-              | otherwise                        = doStack n >> io evt >>= choose n
-        doStack n = windows . W.modify' . const $ stacks `cycref` n
-
-    io $ grabKeyboard d root False grabModeAsync grabModeAsync currentTime
-    io evt >>= choose 1
-    io $ ungrabKeyboard d currentTime
-  where cycref l i = l !! (i `mod` length l) -- modify' ensures l is never [], but must also be finite
-        numKeyToN = subtract 48 . read . show
+  stacks <- gets $ maybe [] filteredPerms
+                 . W.stack . W.workspace . W.current . windowset
+  let
+    preview = do
+      i <- get
+      lift . windows . W.modify' . const $ stacks !! (i `mod` n)
+      where n = length stacks
+  void $ repeatableSt 0 mods keyNext $ \t s -> if
+    | t == keyPress && s == keyNext          -> modify succ
+    | t == keyPress && s == keyPrev          -> modify pred
+    | t == keyPress && s `elem` [xK_0..xK_9] -> put (numKeyToN s)
+    | otherwise                              -> preview
+  where numKeyToN = subtract 48 . read . show
 
 -- | Given a stack element and a stack, shift or insert the element (window)
 --   at the currently focused position.
@@ -178,7 +176,7 @@ rotOpposite' :: W.Stack a -> W.Stack a
 rotOpposite' (W.Stack t l r) = W.Stack t' l' r'
   where rrvl = r ++ reverse l
         part = (length rrvl + 1) `div` 2
-        (l',t':r') =  second reverse . splitAt (length l) $
+        (l', notEmpty -> t' :| r') = second reverse . splitAt (length l) $
                                 reverse (take part rrvl ++ t : drop part rrvl)
 
 
@@ -204,8 +202,8 @@ rotFocusedDown = windows . W.modify' $ rotFocused' rotDown
 rotFocused' :: ([a] -> [a]) -> W.Stack a -> W.Stack a
 rotFocused' _ s@(W.Stack _ [] []) = s
 rotFocused' f   (W.Stack t [] (r:rs)) = W.Stack t' [] (r:rs') -- Master has focus
-    where (t':rs') = f (t:rs)
-rotFocused' f s@(W.Stack _ _ _) = rotSlaves' f s              -- otherwise
+    where (notEmpty -> t' :| rs') = f (t:rs)
+rotFocused' f s@W.Stack{} = rotSlaves' f s                    -- otherwise
 
 
 -- $unfocused
@@ -219,17 +217,8 @@ rotUnfocusedDown = windows . W.modify' $ rotUnfocused' rotDown
 
 -- | The unfocused rotation on a stack.
 rotUnfocused' :: ([a] -> [a]) -> W.Stack a -> W.Stack a
-rotUnfocused' _ s@(W.Stack _ [] []) = s
-rotUnfocused' f s@(W.Stack _ [] _ ) = rotSlaves' f s                 -- Master has focus
-rotUnfocused' f   (W.Stack t ls rs) = W.Stack t (reverse revls') rs' -- otherwise
-    where  (master:revls)  = reverse ls
+rotUnfocused' _ s@(W.Stack _ []        []) = s
+rotUnfocused' f s@(W.Stack _ []        _ ) = rotSlaves' f s                 -- Master has focus
+rotUnfocused' f   (W.Stack t ls@(l:ll) rs) = W.Stack t (reverse revls') rs' -- otherwise
+    where  (master :| revls) = NE.reverse (l :| ll)
            (revls',rs') = splitAt (length ls) (f $ master:revls ++ rs)
-
--- $generic
--- Generic list rotations such that @rotUp [1..4]@ is equivalent to
--- @[2,3,4,1]@ and @rotDown [1..4]@ to @[4,1,2,3]@. They both are
--- @id@ for null or singleton lists.
-rotUp :: [a] -> [a]
-rotUp   l = drop 1 l ++ take 1 l
-rotDown :: [a] -> [a]
-rotDown = reverse . rotUp . reverse

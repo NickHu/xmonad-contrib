@@ -1,7 +1,7 @@
-{-# LANGUAGE DeriveDataTypeable #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Hooks.FloatNext
+-- Description :  Automatically send the next spawned window(s) to the floating layer.
 -- Copyright   :  Quentin Moser <moserq@gmail.com>
 -- License     :  BSD-style (see LICENSE)
 --
@@ -30,7 +30,7 @@ module XMonad.Hooks.FloatNext ( -- * Usage
                               , willFloatNext
                               , willFloatAllNew
 
-                                -- * 'DynamicLog' utilities
+                                -- * Status bar utilities
                                 -- $pp
                               , willFloatNextPP
                               , willFloatAllNewPP
@@ -47,13 +47,13 @@ hookName = "__float"
 -- to automatically send the next spawned window(s) to the floating
 -- layer.
 --
--- You can use it by including the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use it by including the following in your @xmonad.hs@:
 --
 -- > import XMonad.Hooks.FloatNext
 --
 -- and adding 'floatNextHook' to your 'ManageHook':
 --
--- > myManageHook = floatNextHook <+> manageHook def
+-- > myManageHook = floatNextHook <> manageHook def
 --
 -- The 'floatNext' and 'toggleFloatNext' functions can be used in key
 -- bindings to float the next spawned window:
@@ -97,10 +97,10 @@ willFloatAllNew = willHookAllNew hookName
 -- $pp
 -- The following functions are used to display the current
 -- state of 'floatNext' and 'floatAllNew' in your
--- 'XMonad.Hooks.DynamicLog.dynamicLogWithPP'.
+-- "XMonad.Hooks.StatusBar.PP".
 -- 'willFloatNextPP' and 'willFloatAllNewPP' should be added
--- to the 'XMonad.Hooks.DynamicLog.ppExtras' field of your
--- 'XMonad.Hooks.DynamicLog.PP'.
+-- to the 'XMonad.Hooks.StatusBar.PP.ppExtras' field of your
+-- "XMonad.Hooks.StatusBar.PP".
 --
 -- Use 'runLogHook' to refresh the output of your 'logHook', so
 -- that the effects of a 'floatNext'/... will be visible

@@ -1,6 +1,7 @@
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.BluetileCommands
+-- Description :  Interface with the [Bluetile](https://hackage.haskell.org/package/bluetile) tiling window manager.
 -- Copyright   :  (c) Jan Vornberger 2009
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -24,12 +25,11 @@ module XMonad.Actions.BluetileCommands (
 
 import XMonad
 import qualified XMonad.StackSet as W
-import XMonad.Layout.LayoutCombinators
 import System.Exit
 
 -- $usage
 --
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- >    import XMonad.Hooks.ServerMode
 -- >    import XMonad.Actions.BluetileCommands
@@ -43,7 +43,7 @@ import System.Exit
 
 workspaceCommands :: Int -> X [(String, X ())]
 workspaceCommands sid = asks (workspaces . config) >>= \spaces -> return
-                            [(("greedyView" ++ show i),
+                            [( "greedyView" ++ show i,
                                 activateScreen sid >> windows (W.greedyView i))
                                 | i <- spaces ]
 
@@ -66,7 +66,7 @@ masterAreaCommands sid = [ ("increase master n", activateScreen sid >>
                          ]
 
 quitCommands :: [(String, X ())]
-quitCommands = [ ("quit bluetile", io (exitWith ExitSuccess))
+quitCommands = [ ("quit bluetile", io exitSuccess)
                , ("quit bluetile and start metacity", restart "metacity" False)
                ]
 

@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses, TypeSynonymInstances, PatternGuards #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, PatternGuards #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.WindowNavigation
+-- Description :  A layout modifier to allow easy navigation of a workspace.
 -- Copyright   :  (c) 2007  David Roundy <droundy@darcs.net>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -19,13 +20,13 @@ module XMonad.Layout.WindowNavigation (
                                    -- $usage
                                    windowNavigation, configurableNavigation,
                                    Navigate(..), Direction2D(..),
-                                   MoveWindowToWindow(..),
+                                   MoveWindowToWindow(..), WNConfig,
                                    navigateColor, navigateBrightness,
-                                   noNavigateBorders, def, WNConfig,
+                                   noNavigateBorders, def,
                                    WindowNavigation,
                                   ) where
 
-import Data.List ( nub, sortBy, (\\) )
+import XMonad.Prelude ( nub, sortBy, (\\) )
 import XMonad hiding (Point)
 import qualified XMonad.StackSet as W
 import XMonad.Layout.LayoutModifier
@@ -34,19 +35,19 @@ import XMonad.Util.Types (Direction2D(..))
 import XMonad.Util.XUtils
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.WindowNavigation
 --
--- Then edit your @layoutHook@ by adding the WindowNavigation layout modifier
+-- Then edit your 'layoutHook' by adding the WindowNavigation layout modifier
 -- to some layout:
 --
--- > myLayout = windowNavigation (Tall 1 (3/100) (1/2))  ||| Full ||| etc..
+-- > myLayout = windowNavigation (Tall 1 (3/100) (1/2)) ||| Full ||| etc..
 -- > main = xmonad def { layoutHook = myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the 'layoutHook' see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 --
 -- In keybindings:
 --
@@ -61,17 +62,24 @@ import XMonad.Util.XUtils
 --
 -- For detailed instruction on editing the key binding see:
 --
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 
-data MoveWindowToWindow a = MoveWindowToWindow a a deriving ( Read, Show, Typeable )
+data MoveWindowToWindow a = MoveWindowToWindow a a deriving ( Read, Show)
 instance Typeable a => Message (MoveWindowToWindow a)
 
 data Navigate = Go Direction2D | Swap Direction2D | Move Direction2D
               | Apply (Window -> X()) Direction2D -- ^ Apply action with destination window
-        deriving ( Typeable )
 instance Message Navigate
 
+-- | Used with 'configurableNavigation' to specify how to show reachable windows'
+-- borders. You cannot create 'WNConfig' values directly; use 'def' or one of the following
+-- three functions to create one.
+--
+-- 'def', and 'windowNavigation', uses the focused border color at 40% brightness, as if
+-- you had specified
+--
+-- > configurableNavigation (navigateBrightness 0.4)
 data WNConfig =
     WNC { brightness    :: Maybe Double -- Indicates a fraction of the focus color.
         , upColor       :: String
@@ -80,14 +88,18 @@ data WNConfig =
         , rightColor    :: String
         } deriving (Show, Read)
 
+-- | Don't use window borders for navigation.
 noNavigateBorders :: WNConfig
 noNavigateBorders =
     def {brightness = Just 0}
 
+-- | Indicate reachable windows by drawing their borders in the specified color.
 navigateColor :: String -> WNConfig
 navigateColor c =
     WNC Nothing c c c c
 
+-- | Indicate reachable windows by drawing their borders in the active border color, with
+-- the specified brightness.
 navigateBrightness :: Double -> WNConfig
 navigateBrightness f = def { brightness = Just $ max 0 $ min 1 f }
 

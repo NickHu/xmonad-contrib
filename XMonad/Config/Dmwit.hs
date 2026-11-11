@@ -1,13 +1,16 @@
 -- boilerplate {{{
-{-# LANGUAGE ExistentialQuantification, NoMonomorphismRestriction, TypeSynonymInstances #-}
+{-# LANGUAGE ExistentialQuantification, NoMonomorphismRestriction, TypeSynonymInstances, ViewPatterns, LambdaCase #-}
 {-# OPTIONS_GHC -fno-warn-missing-signatures -fno-warn-type-defaults #-}
-module XMonad.Config.Dmwit where
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  XMonad.Config.Dmwit
+-- Description :  Daniel Wagner's xmonad configuration.
+--
+------------------------------------------------------------------------
+module XMonad.Config.Dmwit {-# DEPRECATED "This module contains a personal configuration, to be removed from xmonad-contrib.  If you use this module, please copy the relevant parts to your configuration or obtain a copy of it on https://xmonad.org/configurations.html and include it as a local module." #-} where
 
 -- system imports
-import Control.Monad
 import Control.Monad.Trans
-import Data.Char
-import Data.List
 import Data.Map (Map, fromList)
 import Data.Ratio
 import Data.Word
@@ -28,9 +31,10 @@ import XMonad.Hooks.DynamicLog
 import XMonad.Hooks.ManageDocks
 import XMonad.Hooks.ManageHelpers
 import XMonad.Layout.Grid
-import XMonad.Layout.IndependentScreens
+import XMonad.Layout.IndependentScreens hiding (withScreen)
 import XMonad.Layout.Magnifier
 import XMonad.Layout.NoBorders
+import XMonad.Prelude hiding (fromList)
 import XMonad.Util.Dzen hiding (x, y)
 import XMonad.Util.SpawnOnce
 -- }}}
@@ -74,7 +78,7 @@ modVolume kind n = do
     where
     sign | n > 0 = "+" | otherwise = "-"
     ctlKind      = map (\c -> if c == ' ' then '-' else c) kind
-    parseKind    = unwords . map (\(c:cs) -> toUpper c : cs) . words $ kind
+    parseKind    = unwords . map (\(notEmpty -> c :| cs) -> toUpper c : cs) . words $ kind
     setCommand i = "pactl set-" ++ ctlKind ++ "-volume " ++ i ++ " -- " ++ sign ++ show (abs n) ++ "%"
     listCommand  = "pactl list " ++ ctlKind ++ "s"
 -- }}}
@@ -111,7 +115,6 @@ fullscreenMPlayer = className =? "MPlayer" --> do
         Just (16 :% 9)  -> viewFullOn 1 "5" win
         _               -> doFloat
     where
-    fi               = fromIntegral :: Dimension -> Double
     approx (n, d)    = approxRational (fi n / fi d) (1/100)
 
 operationOn f s n w = do
@@ -214,13 +217,13 @@ dmwitConfig nScreens = docks $ def {
     keys                    = keyBindings,
     layoutHook              = magnifierOff $ avoidStruts (GridRatio 0.9) ||| noBorders Full,
     manageHook              =     (title =? "CGoban: Main Window" --> doF sinkFocus)
-                              <+> (className =? "Wine" <&&> (appName =? "hl2.exe" <||> appName =? "portal2.exe") --> ask >>= viewFullOn {-centerWineOn-} 1 "5")
-                              <+> (className =? "VirtualBox" --> ask >>= viewFullOn 1 "5")
-                              <+> (isFullscreen --> doFullFloat) -- TF2 matches the "isFullscreen" criteria, so its manage hook should appear after (e.g., to the left of a <+> compared to) this one
-                              <+> (appName =? "huludesktop" --> doRectFloat fullscreen43on169)
-                              <+> fullscreenMPlayer
-                              <+> floatAll ["Gimp", "Wine"]
-                              <+> manageSpawn,
+                              <> (className =? "Wine" <&&> (appName =? "hl2.exe" <||> appName =? "portal2.exe") --> ask >>= viewFullOn {-centerWineOn-} 1 "5")
+                              <> (className =? "VirtualBox" --> ask >>= viewFullOn 1 "5")
+                              <> (isFullscreen --> doFullFloat) -- TF2 matches the "isFullscreen" criteria, so its manage hook should appear after (e.g., to the left of a <> compared to) this one
+                              <> (appName =? "huludesktop" --> doRectFloat fullscreen43on169)
+                              <> fullscreenMPlayer
+                              <> floatAll ["Gimp", "Wine"]
+                              <> manageSpawn,
     logHook                 = allPPs nScreens,
     startupHook             = refresh
                            >> mapM_ (spawnOnce . xmobarCommand) [0 .. nScreens-1]
@@ -235,7 +238,7 @@ keyBindings conf = let m = modMask conf in fromList . anyMask $ [
     ((m .|. shiftMask  , xK_p          ), spawnHere termLauncher),
     ((m .|. shiftMask  , xK_c          ), kill),
     ((m                , xK_q          ), restart "xmonad" True),
-    ((m .|. shiftMask  , xK_q          ), io (exitWith ExitSuccess)),
+    ((m .|. shiftMask  , xK_q          ), io exitSuccess),
     ((m                , xK_grave      ), sendMessage NextLayout),
     ((m .|. shiftMask  , xK_grave      ), setLayout $ layoutHook conf),
     ((m                , xK_o          ), sendMessage Toggle),
@@ -305,7 +308,7 @@ allPPs nScreens = sequence_ [dynamicLogWithPP (pp s) | s <- [0..nScreens-1], pp 
 color c = xmobarColor c ""
 
 ppFocus s@(S s_) = whenCurrentOn s def {
-    ppOrder  = \(_:_:windowTitle:_) -> [windowTitle],
+    ppOrder  = \case{ _:_:windowTitle:_ -> [windowTitle]; _ -> [] },
     ppOutput = appendFile (pipeName "focus" s_) . (++ "\n")
     }
 
@@ -315,7 +318,7 @@ ppWorkspaces s@(S s_) = marshallPP s def {
     ppHiddenNoWindows   = color dark,
     ppUrgent            = color "red",
     ppSep               = "",
-    ppOrder             = \(wss:_layout:_title:_) -> [wss],
+    ppOrder             = \case{ wss:_layout:_title:_ -> [wss]; _ -> [] },
     ppOutput            = appendFile (pipeName "workspaces" s_) . (++"\n")
     }
 -- }}}

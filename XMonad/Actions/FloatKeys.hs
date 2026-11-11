@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Actions.FloatKeys
+-- Description  :  Move and resize floating windows.
 -- Copyright    : (c) Karsten Schoelzel <kuser@gmx.de>
 -- License      : BSD
 --
@@ -18,13 +19,18 @@ module XMonad.Actions.FloatKeys (
                 keysMoveWindowTo,
                 keysResizeWindow,
                 keysAbsResizeWindow,
-                P, G,
+                directionMoveWindow,
+                directionResizeWindow,
+                Direction2D(..),
+                P, G, ChangeDim
                 ) where
 
 import XMonad
+import XMonad.Prelude (fi)
+import XMonad.Util.Types
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- >    import XMonad.Actions.FloatKeys
 --
@@ -36,16 +42,44 @@ import XMonad
 -- >  , ((modm .|. shiftMask, xK_s     ), withFocused (keysAbsResizeWindow (10,10) (1024,752)))
 -- >  , ((modm,               xK_a     ), withFocused (keysMoveWindowTo (512,384) (1%2,1%2)))
 --
+-- Using "XMonad.Util.EZConfig" syntax, we can easily build keybindings
+-- where @M-\<arrow-keys\>@ moves the currently focused window and
+-- @M-S-\<arrow-keys\>@ resizes it using 'directionMoveWindow' and
+-- 'directionResizeWindow':
+--
+-- > [ ("M-" <> m <> k, withFocused $ f i)
+-- > | (i, k) <- zip [U, D, R, L] ["<Up>", "<Down>", "<Right>", "<Left>"]
+-- > , (f, m) <- [(directionMoveWindow 10, ""), (directionResizeWindow 10, "S-")]
+-- > ]
+--
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
+
+-- | @directionMoveWindow delta dir win@ moves the window @win@ by
+--   @delta@ pixels in direction @dir@.
+directionMoveWindow :: Int -> Direction2D -> Window -> X ()
+directionMoveWindow delta dir win = case dir of
+  U -> keysMoveWindow (0, -delta) win
+  D -> keysMoveWindow (0, delta)  win
+  R -> keysMoveWindow (delta, 0)  win
+  L -> keysMoveWindow (-delta, 0) win
+
+-- | @directionResizeWindow delta dir win@ resizes the window @win@ by
+--   @delta@ pixels in direction @dir@.
+directionResizeWindow :: Int -> Direction2D -> Window -> X ()
+directionResizeWindow delta dir win = case dir of
+  U -> keysResizeWindow (0, -delta) (0, 0) win
+  D -> keysResizeWindow (0, delta)  (0, 0) win
+  R -> keysResizeWindow (delta, 0)  (0, 0) win
+  L -> keysResizeWindow (-delta, 0) (0, 0) win
 
 -- | @keysMoveWindow (dx, dy)@ moves the window by @dx@ pixels to the
 --   right and @dy@ pixels down.
-keysMoveWindow :: D -> Window -> X ()
-keysMoveWindow (dx,dy) w = whenX (isClient w) $ withDisplay $ \d -> do
-    wa <- io $ getWindowAttributes d w
-    io $ moveWindow d w (fromIntegral (fromIntegral (wa_x wa) + dx))
-                        (fromIntegral (fromIntegral (wa_y wa) + dy))
+keysMoveWindow :: ChangeDim -> Window -> X ()
+keysMoveWindow (dx,dy) w = whenX (isClient w) $ withDisplay $ \d ->
+  withWindowAttributes d w $ \wa -> do
+    io $ moveWindow d w (fi (fi (wa_x wa) + dx))
+                        (fi (fi (wa_y wa) + dy))
     float w
 
 -- | @keysMoveWindowTo (x, y) (gx, gy)@ moves the window relative
@@ -59,14 +93,15 @@ keysMoveWindow (dx,dy) w = whenX (isClient w) $ withDisplay $ \d -> do
 -- > keysMoveWindowTo (512,384) (1%2, 1%2) -- center the window on screen
 -- > keysMoveWindowTo (1024,0) (1, 0)      -- put window in the top right corner
 keysMoveWindowTo :: P -> G -> Window -> X ()
-keysMoveWindowTo (x,y) (gx, gy) w = whenX (isClient w) $ withDisplay $ \d -> do
-    wa <- io $ getWindowAttributes d w
-    io $ moveWindow d w (x - round (gx * fromIntegral (wa_width wa)))
-                        (y - round (gy * fromIntegral (wa_height wa)))
+keysMoveWindowTo (x,y) (gx, gy) w = whenX (isClient w) $ withDisplay $ \d ->
+  withWindowAttributes d w $ \wa -> do
+    io $ moveWindow d w (x - round (gx * fi (wa_width wa)))
+                        (y - round (gy * fi (wa_height wa)))
     float w
 
 type G = (Rational, Rational)
 type P = (Position, Position)
+type ChangeDim = (Int, Int)
 
 -- | @keysResizeWindow (dx, dy) (gx, gy)@ changes the width by @dx@
 --   and the height by @dy@, leaving the window-relative point @(gx,
@@ -78,7 +113,7 @@ type P = (Position, Position)
 -- > keysResizeWindow (10, 0) (0, 1%2)    -- does the same, unless sizeHints are applied
 -- > keysResizeWindow (10, 10) (1%2, 1%2) -- add 5 pixels on each side
 -- > keysResizeWindow (-10, -10) (0, 1)   -- shrink the window in direction of the bottom-left corner
-keysResizeWindow :: D -> G -> Window -> X ()
+keysResizeWindow :: ChangeDim -> G -> Window -> X ()
 keysResizeWindow = keysMoveResize keysResizeWindow'
 
 -- | @keysAbsResizeWindow (dx, dy) (ax, ay)@ changes the width by @dx@
@@ -88,33 +123,34 @@ keysResizeWindow = keysMoveResize keysResizeWindow'
 --   For example:
 --
 -- > keysAbsResizeWindow (10, 10) (0, 0)   -- enlarge the window; if it is not in the top-left corner it will also be moved down and to the right.
-keysAbsResizeWindow :: D -> D -> Window -> X ()
+keysAbsResizeWindow :: ChangeDim -> D -> Window -> X ()
 keysAbsResizeWindow = keysMoveResize keysAbsResizeWindow'
 
-keysAbsResizeWindow' :: SizeHints -> P -> D -> D -> D -> (P,D)
+keysAbsResizeWindow' :: SizeHints -> P -> D -> ChangeDim -> D -> (P,D)
 keysAbsResizeWindow' sh (x,y) (w,h) (dx,dy) (ax, ay) = ((round nx, round ny), (nw, nh))
     where
-        (nw, nh) = applySizeHintsContents sh (w + dx, h + dy)
+        -- The width and height of a window are positive and thus
+        -- converting to 'Dimension' should be safe.
+        (nw, nh) = applySizeHintsContents sh (fi w + dx, fi h + dy)
         nx :: Rational
-        nx = fromIntegral (ax * w + nw * (fromIntegral x - ax)) / fromIntegral w
+        nx = fi (ax * w + nw * (fi x - ax)) / fi w
         ny :: Rational
-        ny = fromIntegral (ay * h + nh * (fromIntegral y - ay)) / fromIntegral h
+        ny = fi (ay * h + nh * (fi y - ay)) / fi h
 
-keysResizeWindow' :: SizeHints -> P -> D -> D -> G -> (P,D)
+keysResizeWindow' :: SizeHints -> P -> D -> ChangeDim -> G -> (P,D)
 keysResizeWindow' sh (x,y) (w,h) (dx,dy) (gx, gy) = ((nx, ny), (nw, nh))
     where
-        (nw, nh) = applySizeHintsContents sh (w + dx, h + dy)
-        nx = round $ fromIntegral x + gx * fromIntegral w - gx * fromIntegral nw
-        ny = round $ fromIntegral y + gy * fromIntegral h - gy * fromIntegral nh
+        (nw, nh) = applySizeHintsContents sh (fi w + dx, fi h + dy)
+        nx = round $ fi x + gx * fi w - gx * fi nw
+        ny = round $ fi y + gy * fi h - gy * fi nh
 
 keysMoveResize :: (SizeHints -> P -> D -> a -> b -> (P,D)) -> a -> b -> Window -> X ()
-keysMoveResize f move resize w = whenX (isClient w) $ withDisplay $ \d -> do
-    wa <- io $ getWindowAttributes d w
+keysMoveResize f move resize w = whenX (isClient w) $ withDisplay $ \d ->
+  withWindowAttributes d w $ \wa -> do
     sh <- io $ getWMNormalHints d w
-    let wa_dim = (fromIntegral $ wa_width wa, fromIntegral $ wa_height wa)
-        wa_pos = (fromIntegral $ wa_x wa, fromIntegral $ wa_y wa)
+    let wa_dim = (fi $ wa_width wa, fi $ wa_height wa)
+        wa_pos = (fi $ wa_x wa, fi $ wa_y wa)
         (wn_pos, wn_dim) = f sh wa_pos wa_dim move resize
     io $ resizeWindow d w `uncurry` wn_dim
     io $ moveWindow d w `uncurry` wn_pos
     float w
-

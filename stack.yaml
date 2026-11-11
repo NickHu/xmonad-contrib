@@ -1,10 +1,14 @@
-resolver: lts-17.5
+# This stack.yaml is used to build xmonad-contrib with released versions
+# of X11 and xmonad
+
+resolver: lts-21.12
 
 packages:
 - ./
 
 extra-deps:
-- xmonad-0.15
+- X11-1.10.2
+- xmonad-0.18.0
 
 nix:
   packages:
@@ -15,3 +19,6 @@ nix:
     - xorg.libXrandr
     - xorg.libXrender
     - xorg.libXScrnSaver
+
+ghc-options:
+  xmonad-contrib: '-j'

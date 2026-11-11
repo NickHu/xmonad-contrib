@@ -1,6 +1,7 @@
 -------------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.ClickableWorkspaces
+-- Description :  Make workspace tags clickable in XMobar (for switching focus).
 -- Copyright   :  (c) Geoff deRosenroll <geoffderosenroll@gmail.com>
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -21,9 +22,7 @@ module XMonad.Util.ClickableWorkspaces (
   clickableWrap,
   ) where
 
-import Control.Monad ((>=>))
-import Data.Functor ((<&>))
-
+import XMonad.Prelude ((<&>), (>=>))
 import XMonad
 import XMonad.Hooks.StatusBar.PP (xmobarAction, PP(..))
 import XMonad.Util.WorkspaceCompare (getSortByIndex)
@@ -44,7 +43,7 @@ import Data.List (elemIndex)
 --
 --   * @xdotool@ on system (in path)
 --   * "XMonad.Hooks.EwmhDesktops" for @xdotool@ support (see Hackage docs for setup)
---   * use of UnsafeStdinReader/UnsafeXMonadLog in xmobarrc (rather than StdinReader/XMonadLog)
+--   * use of UnsafeStdinReader\/UnsafeXMonadLog in xmobarrc (rather than StdinReader\/XMonadLog)
 --
 -- Note that UnsafeStdinReader is potentially dangerous if your workspace
 -- names are dynamically generated from untrusted input (like window titles).
@@ -54,7 +53,7 @@ import Data.List (elemIndex)
 -- | Wrap string with an xmobar action that uses @xdotool@ to switch to
 -- workspace @i@.
 clickableWrap :: Int -> String -> String
-clickableWrap i ws = xmobarAction ("xdotool set_desktop " ++ show i) "1" ws
+clickableWrap i = xmobarAction ("xdotool set_desktop " ++ show i) "1"
 
 -- | 'XMonad.Util.WorkspaceCompare.getWsIndex' extended to handle workspaces
 -- not in the static 'workspaces' config, such as those created by

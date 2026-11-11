@@ -1,8 +1,7 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Actions.DynamicWorkspaceOrder
+-- Description :  Remember a dynamically updateable ordering on workspaces.
 -- Copyright   :  (c) Brent Yorgey 2009
 -- License     :  BSD-style (see LICENSE)
 --
@@ -12,7 +11,7 @@
 --
 -- Remember a dynamically updateable ordering on workspaces, together
 -- with tools for using this ordering with "XMonad.Actions.CycleWS"
--- and "XMonad.Hooks.DynamicLog".
+-- and "XMonad.Hooks.StatusBar.PP".
 --
 -----------------------------------------------------------------------------
 
@@ -23,6 +22,8 @@ module XMonad.Actions.DynamicWorkspaceOrder
       getWsCompareByOrder
     , getSortByOrder
     , swapWith
+    , swapWithCurrent
+    , swapOrder
     , updateName
     , removeName
 
@@ -44,11 +45,11 @@ import XMonad.Actions.CycleWS (findWorkspace, WSType(..), Direction1D(..), doTo)
 
 import qualified Data.Map as M
 import qualified Data.Set as S
-import Data.Maybe (fromJust, fromMaybe)
+import XMonad.Prelude (fromJust, fromMaybe)
 import Data.Ord (comparing)
 
 -- $usage
--- You can use this module by importing it into your ~\/.xmonad\/xmonad.hs file:
+-- You can use this module by importing it into your @xmonad.hs@ file:
 --
 -- > import qualified XMonad.Actions.DynamicWorkspaceOrder as DO
 --
@@ -67,10 +68,10 @@ import Data.Ord (comparing)
 -- order of workspaces must be updated to use the auxiliary ordering.
 --
 -- To change the order in which workspaces are displayed by
--- "XMonad.Hooks.DynamicLog", use 'getSortByOrder' in your
--- 'XMonad.Hooks.DynamicLog.ppSort' field, for example:
+-- "XMonad.Hooks.StatusBar.PP", use 'getSortByOrder' in your
+-- 'XMonad.Hooks.StatusBar.PP.ppSort' field, for example:
 --
--- >   ... dynamicLogWithPP $ byorgeyPP {
+-- >   myPP = ... byorgeyPP {
 -- >     ...
 -- >     , ppSort = DO.getSortByOrder
 -- >     ...
@@ -89,8 +90,8 @@ import Data.Ord (comparing)
 -- tweak as desired.
 
 -- | Extensible state storage for the workspace order.
-data WSOrderStorage = WSO { unWSO :: Maybe (M.Map WorkspaceId Int) }
-  deriving (Typeable, Read, Show)
+newtype WSOrderStorage = WSO { unWSO :: Maybe (M.Map WorkspaceId Int) }
+  deriving (Read, Show)
 
 instance ExtensionClass WSOrderStorage where
   initialValue = WSO Nothing
@@ -151,7 +152,8 @@ swapOrder :: WorkspaceId -> WorkspaceId -> X ()
 swapOrder w1 w2 = do
   io $ print (w1,w2)
   WSO (Just m) <- XS.get
-  let [i1,i2] = map (fromJust . flip M.lookup m) [w1,w2]
+  let i1 = fromJust (w1 `M.lookup` m)
+  let i2 = fromJust (w2 `M.lookup` m)
   XS.modify (withWSO (M.insert w1 i2 . M.insert w2 i1))
   windows id  -- force a status bar update
 

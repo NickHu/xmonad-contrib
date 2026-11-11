@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Hooks.FadeInactive
+-- Description :  Set the _NET_WM_WINDOW_OPACITY atom for inactive windows.
 -- Copyright    : (c) 2008 Justin Bogner <mail@justinbogner.com>
 -- License      : BSD
 --
@@ -8,9 +9,9 @@
 -- Stability    : unstable
 -- Portability  : unportable
 --
--- Makes XMonad set the _NET_WM_WINDOW_OPACITY atom for inactive windows,
--- which causes those windows to become slightly translucent if something
--- like xcompmgr is running
+-- Makes XMonad set the @_NET_WM_WINDOW_OPACITY@ atom for inactive windows,
+-- which causes those windows to become slightly translucent if a compositor
+-- like picom or xcompmgr is running.
 -----------------------------------------------------------------------------
 module XMonad.Hooks.FadeInactive (
     -- * Usage
@@ -27,12 +28,11 @@ module XMonad.Hooks.FadeInactive (
     ) where
 
 import XMonad
+import XMonad.Prelude
 import qualified XMonad.StackSet as W
-import Control.Applicative (liftA2)
-import Control.Monad
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad
 -- > import XMonad.Hooks.FadeInactive
@@ -43,17 +43,15 @@ import Control.Monad
 -- >
 -- > main = xmonad def { logHook = myLogHook }
 --
--- fadeAmount can be any rational between 0 and 1.
--- you will need to have xcompmgr <http://freedesktop.org/wiki/Software/xapps>
--- or something similar for this to do anything
+-- @fadeAmount@ can be any rational between 0 and 1.
+-- You will need to have a compositor such as
+-- <https://github.com/yshui/picom picom> running for this to do anything.
 --
--- For more detailed instructions on editing the logHook see:
---
--- "XMonad.Doc.Extending#The_log_hook_and_external_status_bars"
---
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the 'logHook' see
+-- <https://xmonad.org/TUTORIAL.html#make-xmonad-and-xmobar-talk-to-each-other the tutorial>.
+-- For more detailed instructions on editing the 'layoutHook' see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 -- | Converts a percentage to the format required for _NET_WM_WINDOW_OPACITY
 rationalToOpacity :: Integral a => Rational -> a
@@ -92,7 +90,7 @@ fadeInactiveCurrentWSLogHook = fadeOutLogHook . fadeIf isUnfocusedOnCurrentWS
 
 -- | Returns True if the window doesn't have the focus.
 isUnfocused :: Query Bool
-isUnfocused = ask >>= \w -> liftX . gets $ maybe True (w /=) . W.peek . windowset
+isUnfocused = ask >>= \w -> liftX . gets $ (Just w /=) . W.peek . windowset
 
 -- | Returns True if the window doesn't have the focus, and the window is on the
 -- current workspace. This is specifically handy in a multi monitor setup
@@ -104,7 +102,7 @@ isUnfocusedOnCurrentWS = do
   w <- ask
   ws <- liftX $ gets windowset
   let thisWS = w `elem` W.index ws
-      unfocused = maybe True (w /=) $ W.peek ws
+      unfocused = Just w /= W.peek ws
   return $ thisWS && unfocused
 
 -- | Fades out every window by the amount returned by the query.

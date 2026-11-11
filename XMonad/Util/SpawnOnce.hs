@@ -1,8 +1,7 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.SpawnOnce
+-- Description :  A module for spawning a command once, and only once.
 -- Copyright   :  (c) Spencer Janssen 2009
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -11,20 +10,28 @@
 -- Portability :  not portable
 --
 -- A module for spawning a command once, and only once.  Useful to start
--- status bars and make session settings inside startupHook.
+-- status bars and make session settings inside startupHook. See also
+-- "XMonad.Util.SessionStart" for a different and more flexible way to
+-- run commands only on first startup.
 --
 -----------------------------------------------------------------------------
 
-module XMonad.Util.SpawnOnce (spawnOnce, spawnOnOnce, spawnNOnOnce, spawnAndDoOnce) where
+module XMonad.Util.SpawnOnce (spawnOnce,
+                              -- * 'SpawnOn' helpers
+                              -- $spawnon
+                              manageSpawn,
+                              spawnOnOnce,
+                              spawnNOnOnce,
+                              spawnAndDoOnce) where
 
 import XMonad
 import XMonad.Actions.SpawnOn
 import Data.Set as Set
 import qualified XMonad.Util.ExtensibleState as XS
-import Control.Monad
+import XMonad.Prelude
 
-data SpawnOnce = SpawnOnce { unspawnOnce :: (Set String) }
-    deriving (Read, Show, Typeable)
+newtype SpawnOnce = SpawnOnce { unspawnOnce :: Set String }
+    deriving (Read, Show)
 
 instance ExtensionClass SpawnOnce where
     initialValue = SpawnOnce Set.empty
@@ -33,7 +40,7 @@ instance ExtensionClass SpawnOnce where
 doOnce :: (String -> X ()) -> String -> X ()
 doOnce f s = do
     b <- XS.gets (Set.member s . unspawnOnce)
-    when (not b) $ do
+    unless b $ do
         f s
         XS.modify (SpawnOnce . Set.insert s . unspawnOnce)
 
@@ -42,19 +49,24 @@ doOnce f s = do
 -- that command is executed.  Subsequent invocations for a command do
 -- nothing.
 spawnOnce :: String -> X ()
-spawnOnce cmd = doOnce spawn cmd
+spawnOnce = doOnce spawn
 
--- | Like spawnOnce but launches the application on the given workspace.
+-- $spawnon
+-- These functions combine 'spawnOnce' with their relatives in
+-- "XMonad.Actions.SpawnOn". You must add 'manageSpawn' to your
+-- @manageHook@ for them to work, as with @SpawnOn@.
+
+-- | Like 'spawnOnce' but launches the application on the given workspace.
 spawnOnOnce :: WorkspaceId -> String -> X ()
-spawnOnOnce ws cmd = doOnce (spawnOn ws) cmd
+spawnOnOnce ws = doOnce (spawnOn ws)
 
 -- | Lanch the given application n times on the specified
 -- workspace. Subsequent attempts to spawn this application will be
 -- ignored.
 spawnNOnOnce :: Int -> WorkspaceId -> String -> X ()
-spawnNOnOnce n ws cmd = doOnce (\c -> sequence_ $ replicate n $ spawnOn ws c) cmd
+spawnNOnOnce n ws = doOnce (replicateM_ n . spawnOn ws)
 
 -- | Spawn the application once and apply the manage hook. Subsequent
 -- attempts to spawn this application will be ignored.
 spawnAndDoOnce :: ManageHook -> String -> X ()
-spawnAndDoOnce mh cmd = doOnce (spawnAndDo mh) cmd
+spawnAndDoOnce mh = doOnce (spawnAndDo mh)

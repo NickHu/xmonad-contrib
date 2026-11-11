@@ -1,6 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.Themes
+-- Description :  A collection of themes for decorated layouts.
 -- Copyright   :  (C) 2007 Andrea Rossato
 -- License     :  BSD3
 --
@@ -85,9 +86,9 @@ newTheme :: ThemeInfo
 newTheme = TI "" "" "" def
 
 ppThemeInfo :: ThemeInfo -> String
-ppThemeInfo t = themeName t <> themeDescription t <> "by" <> themeAuthor t
-    where "" <> x = x
-          x <> y = x ++ " - " ++ y
+ppThemeInfo t = themeName t `add` themeDescription t `add` "by" `add` themeAuthor t
+    where "" `add` x = x
+          x `add` y = x ++ " - " ++ y
 
 
 listOfThemes :: [ThemeInfo]
@@ -400,4 +401,3 @@ kavonFireTheme =
                                       , inactiveTextColor   = "black"
                                       }
              }
-

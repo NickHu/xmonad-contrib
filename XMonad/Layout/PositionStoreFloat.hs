@@ -2,6 +2,7 @@
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.PositionStoreFloat
+-- Description :  A floating layout; designed with a dual-head setup in mind.
 -- Copyright   :  (c) Jan Vornberger 2009
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -29,12 +30,10 @@ import XMonad
 import XMonad.Util.PositionStore
 import qualified XMonad.StackSet as S
 import XMonad.Layout.WindowArranger
-import Control.Monad(when)
-import Data.Maybe(isJust)
-import Data.List(nub)
+import XMonad.Prelude (fromMaybe, isJust, nub, when)
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Layout.PositionStoreFloat
 -- > import XMonad.Layout.NoFrillsDecoration
@@ -54,7 +53,7 @@ import Data.List(nub)
 positionStoreFloat :: PositionStoreFloat a
 positionStoreFloat = PSF (Nothing, [])
 
-data PositionStoreFloat a = PSF (Maybe Rectangle, [a]) deriving (Show, Read)
+newtype PositionStoreFloat a = PSF (Maybe Rectangle, [a]) deriving (Show, Read)
 instance LayoutClass PositionStoreFloat Window where
     description _ = "PSF"
     doLayout (PSF (maybeChange, paintOrder)) sr (S.Stack w l r) = do
@@ -69,9 +68,8 @@ instance LayoutClass PositionStoreFloat Window where
                 updatePositionStore focused sr
             return (reorder wrs' paintOrder', Just $ PSF (Nothing, paintOrder'))
         where
-            pSQ posStore w' sr' = case (posStoreQuery posStore w' sr') of
-                                    Just rect   -> rect
-                                    Nothing     -> (Rectangle 50 50 200 200)  -- should usually not happen
+            pSQ posStore w' sr' = fromMaybe (Rectangle 50 50 200 200)       -- should usually not happen
+                                            (posStoreQuery posStore w' sr')
     pureMessage (PSF (_, paintOrder)) m
         | Just (SetGeometry rect) <- fromMessage m =
             Just $ PSF (Just rect, paintOrder)
@@ -83,10 +81,10 @@ updatePositionStore (w, rect) sr = modifyPosStore (\ps ->
 
 reorder :: (Eq a) => [(a, b)] -> [a] -> [(a, b)]
 reorder wrs order =
-    let ordered = concat $ map (pickElem wrs) order
-        rest = filter (\(w, _) -> not (w `elem` order)) wrs
+    let ordered = concatMap (pickElem wrs) order
+        rest = filter (\(w, _) -> w `notElem` order) wrs
     in ordered ++ rest
     where
-        pickElem list e = case (lookup e list) of
+        pickElem list e = case lookup e list of
                                 Just result -> [(e, result)]
                                 Nothing -> []

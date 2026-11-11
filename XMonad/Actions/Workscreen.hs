@@ -1,6 +1,9 @@
+{-# LANGUAGE ViewPatterns #-}
+
 -----------------------------------------------------------------------------
 -- |
 -- Module     :  XMonad.Actions.Workscreen
+-- Description:  Display a set of workspaces on several screens.
 -- Copyright  :  (c) 2012 kedals0
 -- License    :  BSD3-style (see LICENSE)
 --
@@ -20,7 +23,6 @@
 -- This also permits to see all workspaces of a workscreen even if just
 -- one screen is present, and to move windows from workspace to workscreen.
 -----------------------------------------------------------------------------
-{-# LANGUAGE DeriveDataTypeable #-}
 
 module XMonad.Actions.Workscreen (
   -- * Usage
@@ -35,12 +37,13 @@ module XMonad.Actions.Workscreen (
   ) where
 
 import XMonad hiding (workspaces)
+import XMonad.Prelude
 import qualified XMonad.StackSet as W
 import qualified XMonad.Util.ExtensibleState as XS
 import XMonad.Actions.OnScreen
 
 -- $usage
--- You can use this module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- You can use this module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Actions.Workscreen
 -- > myWorkspaces = let myOldWorkspaces = ["adm","work","mail"]
@@ -55,26 +58,26 @@ import XMonad.Actions.OnScreen
 -- >      , (f, m) <- [(Workscreen.viewWorkscreen, 0), (Workscreen.shiftToWorkscreen, shiftMask)]]
 --
 -- For detailed instructions on editing your key bindings, see
--- "XMonad.Doc.Extending#Editing_key_bindings".
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial>.
 
 
-data Workscreen = Workscreen{workscreenId::Int,workspaces::[WorkspaceId]} deriving (Show,Typeable)
+data Workscreen = Workscreen{workscreenId::Int,workspaces::[WorkspaceId]} deriving (Show)
 type WorkscreenId=Int
 
-data WorkscreenStorage = WorkscreenStorage WorkscreenId [Workscreen] deriving (Show,Typeable)
+data WorkscreenStorage = WorkscreenStorage WorkscreenId [Workscreen] deriving (Show)
 instance ExtensionClass WorkscreenStorage where
   initialValue = WorkscreenStorage 0 []
 
 -- | Helper to group workspaces. Multiply workspace by screens number.
 expandWorkspace :: Int -> [WorkspaceId] -> [WorkspaceId]
-expandWorkspace nscr ws = concat $ map expandId ws
+expandWorkspace nscr = concatMap expandId
   where expandId wsId = let t = wsId ++ "_"
                         in map ((++) t . show ) [1..nscr]
 
 -- | Create workscreen list from workspace list. Group workspaces to
 -- packets of screens number size.
 fromWorkspace :: Int -> [WorkspaceId] -> [Workscreen]
-fromWorkspace n ws = map (\(a,b) -> Workscreen a b) $ zip [0..] (fromWorkspace' n ws)
+fromWorkspace n ws = zipWith Workscreen [0..] (fromWorkspace' n ws)
 fromWorkspace' :: Int -> [WorkspaceId] -> [[WorkspaceId]]
 fromWorkspace' _ [] = []
 fromWorkspace' n ws = take n ws : fromWorkspace' n (drop n ws)
@@ -90,7 +93,7 @@ viewWorkscreen wscrId = do (WorkscreenStorage c a) <- XS.get
                            let wscr = if wscrId == c
                                           then Workscreen wscrId $ shiftWs (workspaces $ a !! wscrId)
                                           else a !! wscrId
-                               (x,_:ys) = splitAt wscrId a
+                               (x, notEmpty -> _ :| ys) = splitAt wscrId a
                                newWorkscreenStorage = WorkscreenStorage wscrId (x ++ [wscr] ++ ys)
                            windows (viewWorkscreen' wscr)
                            XS.put newWorkscreenStorage
@@ -106,5 +109,6 @@ shiftWs a = drop 1 a ++ take 1 a
 -- @WorkscreenId@.
 shiftToWorkscreen :: WorkscreenId -> X ()
 shiftToWorkscreen wscrId = do (WorkscreenStorage _ a) <- XS.get
-                              let ws = head . workspaces $ a !! wscrId
-                              windows $ W.shift ws
+                              case workspaces (a !! wscrId) of
+                                []      -> pure ()
+                                (w : _) -> windows $ W.shift w

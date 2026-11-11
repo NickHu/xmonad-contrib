@@ -5,6 +5,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.ShowWName
+-- Description :  A layout modifier that will show the workspace name.
 -- Copyright   :  (c) Andrea Rossato 2007
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -34,15 +35,15 @@ import XMonad.Util.XUtils
 
 -- $usage
 -- You can use this module with the following in your
--- @~\/.xmonad\/xmonad.hs@:
+-- @xmonad.hs@:
 --
 -- > import XMonad.Layout.ShowWName
 -- > myLayout = layoutHook def
 -- > main = xmonad def { layoutHook = showWName myLayout }
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 -- | A layout modifier to show the workspace name when switching
 showWName :: l a -> ModifiedLayout ShowWName l a
@@ -76,7 +77,7 @@ instance Default SWNConfig where
          }
 
 instance LayoutModifier ShowWName a where
-    redoLayout      sn r _ wrs = doShow sn r wrs
+    redoLayout      sn r _ = doShow sn r
 
     handleMess (SWN _ c (Just (i,w))) m
         | Just e    <- fromMessage m = handleTimer i e (deleteWindow w >> return Nothing)

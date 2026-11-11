@@ -1,9 +1,11 @@
 {-# LANGUAGE FlexibleContexts, FlexibleInstances, MultiParamTypeClasses #-}
-{-# LANGUAGE TypeSynonymInstances, PatternGuards, DeriveDataTypeable #-}
+{-# LANGUAGE PatternGuards #-}
+{-# OPTIONS_GHC -Wno-dodgy-imports #-} -- singleton in Data.List since base 4.15
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Layout.NoBorders
+-- Description :  Make a given layout display without borders.
 -- Copyright   :  (c) --    David Roundy <droundy@darcs.net>
 --                    2018  Yclept Nemo
 -- License     :  BSD3-style (see LICENSE)
@@ -34,19 +36,16 @@ module XMonad.Layout.NoBorders ( -- * Usage
                                ) where
 
 import           XMonad
+import           XMonad.Prelude hiding (singleton)
 import           XMonad.Layout.LayoutModifier
 import qualified XMonad.StackSet                as W
 import qualified XMonad.Util.Rectangle          as R
 
-import           Data.List                      hiding (singleton)
-import           Data.Monoid
 import qualified Data.Map                       as M
-import           Data.Function                  (on)
-import           Control.Monad                  (guard)
 
 
 -- $usage
--- You can use this module with the following in your ~\/.xmonad\/xmonad.hs file:
+-- You can use this module with the following in your xmonad.hs file:
 --
 -- > import XMonad.Layout.NoBorders
 --
@@ -55,9 +54,9 @@ import           Control.Monad                  (guard)
 --
 -- > layoutHook = ... ||| noBorders Full ||| ...
 --
--- For more detailed instructions on editing the layoutHook see:
---
--- "XMonad.Doc.Extending#Editing_the_layout_hook"
+-- For more detailed instructions on editing the layoutHook see
+-- <https://xmonad.org/TUTORIAL.html#customizing-xmonad the tutorial> and
+-- "XMonad.Doc.Extending#Editing_the_layout_hook".
 
 -- todo, use an InvisibleList.
 data WithBorder a = WithBorder Dimension [a] deriving ( Read, Show )
@@ -124,7 +123,6 @@ data BorderMessage
     | ResetBorder Window
         -- ^ Reset the effects of any 'HasBorder' messages on the specified
         -- window.
-    deriving (Typeable)
 
 instance Message BorderMessage
 
@@ -145,17 +143,15 @@ data ConfigurableBorder p w = ConfigurableBorder
 
 -- | Only necessary with 'BorderMessage' - remove non-existent windows from the
 -- 'alwaysHidden' or 'neverHidden' lists.
+{-# DEPRECATED borderEventHook "No longer needed." #-}
 borderEventHook :: Event -> X All
-borderEventHook (DestroyWindowEvent { ev_window = w }) = do
-    broadcastMessage $ ResetBorder w
-    return $ All True
 borderEventHook _ = return $ All True
 
 instance (Read p, Show p, SetsAmbiguous p) => LayoutModifier (ConfigurableBorder p) Window where
     unhook (ConfigurableBorder _ _ _ ch) = asks (borderWidth . config) >>= setBorders ch
 
     redoLayout cb@(ConfigurableBorder gh ah nh ch) lr mst wrs = do
-        let gh' wset = let lh = (hiddens gh wset lr mst wrs)
+        let gh' wset = let lh = hiddens gh wset lr mst wrs
                        in  return $ (ah `union` lh) \\ nh
         ch' <- withWindowSet gh'
         asks (borderWidth . config) >>= setBorders (ch \\ ch')
@@ -166,17 +162,20 @@ instance (Read p, Show p, SetsAmbiguous p) => LayoutModifier (ConfigurableBorder
         | Just (HasBorder b w) <- fromMessage m =
             let consNewIf l True  = if w `elem` l then Nothing else Just (w:l)
                 consNewIf l False = Just l
-            in  (ConfigurableBorder gh) <$> consNewIf ah (not b)
+            in  ConfigurableBorder gh <$> consNewIf ah (not b)
                                         <*> consNewIf nh b
                                         <*> pure ch
-        | Just (ResetBorder w) <- fromMessage m =
+        | Just (ResetBorder w) <- fromMessage m = resetBorder w
+        | Just DestroyWindowEvent { ev_window = w } <- fromMessage m = resetBorder w
+        | otherwise = Nothing
+      where
+        resetBorder w =
             let delete' e l = if e `elem` l then (True,delete e l) else (False,l)
                 (da,ah') = delete' w ah
                 (dn,nh') = delete' w nh
             in  if da || dn
                 then Just cb { alwaysHidden = ah', neverHidden = nh' }
                 else Nothing
-        | otherwise = Nothing
 
 -- | SetsAmbiguous allows custom actions to generate lists of windows that
 -- should not have borders drawn through 'ConfigurableBorder'
@@ -275,13 +274,15 @@ instance SetsAmbiguous Ambiguity where
                 guard $ case amb of
                     OnlyLayoutFloatBelow ->
                         let vu = do
-                            gr           <- sr `R.difference` lr
-                            (i2,_w2,wr2) <- ts ++ fs
-                            guard $ i2 < i1
-                            [wr2 `R.intersects` gr]
+                                gr           <- sr `R.difference` lr
+                                (i2,_w2,wr2) <- ts ++ fs
+                                guard $ i2 < i1
+                                [wr2 `R.intersects` gr]
                         in lr == wr1 && (not . or) vu
                     OnlyLayoutFloat ->
                         lr == wr1
+                    OnlyFloat ->
+                        True
                     _ ->
                         wr1 `R.supersetOf` sr
                 return w1
@@ -291,6 +292,7 @@ instance SetsAmbiguous Ambiguity where
               | Screen <- amb = [w]
               | OnlyScreenFloat <- amb = []
               | OnlyLayoutFloat <- amb = []
+              | OnlyFloat <- amb = []
               | OnlyLayoutFloatBelow <- amb = []
               | OtherIndicated <- amb
               , let nonF = map integrate $ W.current wset : W.visible wset
@@ -329,6 +331,9 @@ data Ambiguity
         -- ^ Focus in an empty screen does not count as ambiguous.
     | OtherIndicated
         -- ^ No borders on full when all other screens have borders.
+    | OnlyFloat
+        -- ^ Remove borders on all floating windows; tiling windows of
+        -- any kinds are not affected.
     | Screen
         -- ^ Borders are never drawn on singleton screens.  With this one you
         -- really need another way such as a statusbar to detect focus.

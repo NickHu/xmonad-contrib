@@ -1,8 +1,8 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-
+{-# LANGUAGE DerivingVia #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Hooks.WorkspaceHistory
+-- Description :  Keep track of workspace viewing order.
 -- Copyright   :  (c) 2013 Dmitri Iouchtchenko
 -- License     :  BSD3-style (see LICENSE)
 --
@@ -29,17 +29,17 @@ module XMonad.Hooks.WorkspaceHistory (
   , workspaceHistoryModify
   ) where
 
-import           Control.Applicative
-import           Prelude
-
+import Control.Applicative
+import Control.DeepSeq
+import Prelude
 import XMonad
 import XMonad.StackSet hiding (delete, filter, new)
-import Data.List (delete, find, foldl', groupBy, nub, sortBy)
+import XMonad.Prelude (delete, find, foldl', groupBy, nub, sortBy, listToMaybe)
 import qualified XMonad.Util.ExtensibleState as XS
 
 -- $usage
 -- To record the order in which you view workspaces, you can use this
--- module with the following in your @~\/.xmonad\/xmonad.hs@:
+-- module with the following in your @xmonad.hs@:
 --
 -- > import XMonad.Hooks.WorkspaceHistory (workspaceHistoryHook)
 --
@@ -64,7 +64,9 @@ import qualified XMonad.Util.ExtensibleState as XS
 newtype WorkspaceHistory = WorkspaceHistory
   { history :: [(ScreenId, WorkspaceId)] -- ^ Workspace Screens in
                                          -- reverse-chronological order.
-  } deriving (Typeable, Read, Show)
+  }
+  deriving (Read, Show)
+  deriving NFData via [(Int, WorkspaceId)]
 
 instance ExtensionClass WorkspaceHistory where
     initialValue = WorkspaceHistory []
@@ -73,20 +75,22 @@ instance ExtensionClass WorkspaceHistory where
 -- | A 'logHook' that keeps track of the order in which workspaces have
 -- been viewed.
 workspaceHistoryHook :: X ()
-workspaceHistoryHook = gets windowset >>= (XS.modify . updateLastActiveOnEachScreen)
+workspaceHistoryHook = workspaceHistoryHookExclude []
 
 -- | Like 'workspaceHistoryHook', but with the ability to exclude
 -- certain workspaces.
 workspaceHistoryHookExclude :: [WorkspaceId] -> X ()
-workspaceHistoryHookExclude ws =
-  gets windowset >>= XS.modify . updateLastActiveOnEachScreenExclude ws
+workspaceHistoryHookExclude ws = XS.modify' . update =<< gets windowset
+  where
+    update :: WindowSet -> WorkspaceHistory -> WorkspaceHistory
+    update s = force . updateLastActiveOnEachScreenExclude ws s
 
 workspaceHistoryWithScreen :: X [(ScreenId, WorkspaceId)]
 workspaceHistoryWithScreen = XS.gets history
 
 workspaceHistoryByScreen :: X [(ScreenId, [WorkspaceId])]
 workspaceHistoryByScreen =
-  map (\wss -> (fst $ head wss, map snd wss)) .
+  map (\wss -> (maybe 0 fst (listToMaybe wss), map snd wss)) .
   groupBy (\a b -> fst a == fst b) .
   sortBy (\a b -> compare (fst a) $ fst b)<$>
   workspaceHistoryWithScreen
@@ -102,7 +106,7 @@ workspaceHistoryTransaction action = do
   startingHistory <- XS.gets history
   action
   new <- flip updateLastActiveOnEachScreen (WorkspaceHistory startingHistory) <$> gets windowset
-  XS.put new
+  XS.put $! force new
 
 -- | Update the last visible workspace on each monitor if needed
 -- already there, or move it to the front if it is.
@@ -126,4 +130,4 @@ updateLastActiveOnEachScreenExclude ws StackSet {current = cur, visible = vis} w
 
 -- | Modify a the workspace history with a given pure function.
 workspaceHistoryModify :: ([(ScreenId, WorkspaceId)] -> [(ScreenId, WorkspaceId)]) -> X ()
-workspaceHistoryModify action = XS.modify $ WorkspaceHistory . action . history
+workspaceHistoryModify action = XS.modify' $ force . WorkspaceHistory . action . history

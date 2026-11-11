@@ -1,6 +1,7 @@
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Util.Image
+-- Description :  Utilities for manipulating @[[Bool]]@ as images.
 -- Copyright   :  (c) 2010 Alejandro Serrano
 -- License     :  BSD-style (see xmonad/LICENSE)
 --
@@ -21,7 +22,8 @@ module XMonad.Util.Image
     ) where
 
 import XMonad
-import XMonad.Util.Font (stringToPixel,fi)
+import XMonad.Prelude
+import XMonad.Util.Font (stringToPixel)
 
 -- | Placement of the icon in the title bar
 data Placement = OffsetLeft Int Int   -- ^ An exact amount of pixels from the upper left corner
@@ -41,12 +43,12 @@ data Placement = OffsetLeft Int Int   -- ^ An exact amount of pixels from the up
 
 -- | Gets the ('width', 'height') of an image
 imageDims :: [[Bool]] -> (Int, Int)
-imageDims img = (length (head img), length img)
+imageDims img = (length (fromMaybe [] (listToMaybe img)), length img)
 
 -- | Return the 'x' and 'y' positions inside a 'Rectangle' to start drawing
 --   the image given its 'Placement'
 iconPosition :: Rectangle -> Placement -> [[Bool]] -> (Position,Position)
-iconPosition (Rectangle _ _ _ _) (OffsetLeft x y) _ = (fi x, fi y)
+iconPosition Rectangle{} (OffsetLeft x y) _ = (fi x, fi y)
 iconPosition (Rectangle _ _ w _) (OffsetRight x y) icon =
   let (icon_w, _) = imageDims icon
   in (fi w - fi x - fi icon_w, fi y)
@@ -72,7 +74,7 @@ movePoint x y (Point a b) = Point (a + x) (b + y)
 
 -- | Displaces a list of points along a vector 'x', 'y'
 movePoints :: Position -> Position -> [Point] -> [Point]
-movePoints x y points = map (movePoint x y) points
+movePoints x y = map (movePoint x y)
 
 -- | Draw an image into a X surface
 drawIcon :: (Functor m, MonadIO m) => Display -> Drawable -> GC -> String

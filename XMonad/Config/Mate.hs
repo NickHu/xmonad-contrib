@@ -1,8 +1,11 @@
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
-
+-- TODO: Remove when we depend on a version of xmonad that has unGrab.
+{-# OPTIONS_GHC -Wno-deprecations  #-}
+{-# OPTIONS_GHC -Wno-dodgy-imports #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module       : XMonad.Config.Mate
+-- Description  : Config for integrating xmonad with MATE.
 -- Copyright    : (c) Brandon S Allbery KF8NH, 2014
 -- License      : BSD
 --
@@ -27,18 +30,17 @@ module XMonad.Config.Mate (
     desktopLayoutModifiers
     ) where
 
-import XMonad
-import XMonad.Config.Desktop
-import XMonad.Util.Run (safeSpawn)
-import XMonad.Util.Ungrab
-import Data.Char (toUpper)
-
+import System.Environment (getEnvironment)
 import qualified Data.Map as M
 
-import System.Environment (getEnvironment)
+import XMonad hiding (unGrab)
+import XMonad.Config.Desktop
+import XMonad.Prelude (toUpper)
+import XMonad.Util.Run (safeSpawn)
+import XMonad.Util.Ungrab (unGrab)
 
 -- $usage
--- To use this module, start with the following @~\/.xmonad\/xmonad.hs@:
+-- To use this module, start with the following @xmonad.hs@:
 --
 -- > import XMonad
 -- > import XMonad.Config.Mate
@@ -49,10 +51,10 @@ import System.Environment (getEnvironment)
 
 mateConfig = desktopConfig
     { terminal = "mate-terminal"
-    , keys     = mateKeys <+> keys desktopConfig
+    , keys     = mateKeys <> keys desktopConfig
     , startupHook = mateRegister >> startupHook desktopConfig }
 
-mateKeys (XConfig {modMask = modm}) = M.fromList $
+mateKeys XConfig{modMask = modm} = M.fromList
     [ ((modm, xK_p), mateRun)
     , ((modm, xK_d), unGrab >> matePanel "MAIN_MENU")
     , ((modm .|. shiftMask, xK_q), mateLogout) ]
